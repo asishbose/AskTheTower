@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Your lines — Ask the Tower{% endblock %}
+{% block body %}
+<h1>Your lines</h1>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% for line in lines %}
+<div class="card">
+  <strong>Line {{ line.line_id | short_line }}</strong>
+  <div class="muted">Connected {{ line.bound_at | minute }}</div>
+  <a href="/me/lines/{{ line.line_id }}/audit">Activity on this line</a>
+</div>
+{% else %}
+<p class="muted">No line connected yet.</p>
+{% endfor %}
+
+<h2>Who can ask about your line</h2>
+{% set active = given | selectattr("g.active") | list %}
+{% for row in active %}
+<div class="card">
+  <strong>{{ row.g.grantee_user_id }}</strong> — {{ row.g.grant }}, calls it “{{ row.g.alias }}”
+  <div class="muted">since {{ row.g.granted_at | minute }}</div>
+  <form method="post" action="/grants/{{ row.id }}/revoke">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="small secondary" type="submit">Revoke</button>
+  </form>
+</div>
+{% else %}
+<p class="muted">Nobody else.</p>
+{% endfor %}
+{% for row in given if not row.g.active %}
+<div class="muted">Revoked: {{ row.g.grantee_user_id }} — {{ row.g.grant }} (“{{ row.g.alias }}”), {{ row.g.revoked_at | minute }}</div>
+{% endfor %}
+
+{% if lines %}
+<h2>Share your line</h2>
+<form method="post" action="/grants" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if lines | length > 1 %}
+  <label for="line_id">Line</label>
+  <select id="line_id" name="line_id">{% for line in lines %}<option value="{{ line.line_id }}">Line {{ line.line_id | short_line }}</option>{% endfor %}</select>
+  {% else %}
+  <input type="hidden" name="line_id" value="{{ lines[0].line_id }}">
+  {% endif %}
+  <label for="invite_code">Their invite code</label>
+  <input id="invite_code" name="invite_code" type="text" autocomplete="off" autocapitalize="characters" placeholder="ABCD-EFGH">
+  <label for="kind">What they may ask</label>
+  <select id="kind" name="kind">
+    <option value="watch">watch — “is the line OK?”, and a text if it changes</option>
+    <option value="reachability">reachability — “is the phone reachable?” only</option>
+  </select>
+  <label for="alias">What they call you</label>
+  <input id="alias" name="alias" type="text" autocomplete="off" placeholder="mom">
+  <button type="submit">Share</button>
+</form>
+{% endif %}
+
+<h2>Lines shared with you</h2>
+{% for g in received %}
+<div class="card">“{{ g.alias }}” — {{ g.grant }}<div class="muted">since {{ g.granted_at | minute }}</div></div>
+{% else %}
+<p class="muted">None yet.</p>
+{% endfor %}
+
+<h2>Your invite code</h2>
+{% if invite_code %}
+<div class="card"><p class="big">{{ invite_code }}</p><p class="muted">Give this to the person whose line you'll watch. It works once, for 24 hours.</p></div>
+{% endif %}
+<form method="post" action="/me/invite">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="secondary" type="submit">Create invite code</button>
+</form>
+{% endblock %}

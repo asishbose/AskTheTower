@@ -1,0 +1,220 @@
+# Ask the Tower — the local stack (docs/architecture/components/10 §1 "Local" column; e2e-wiring §7).
+#
+#   make up     build + start + wait until every healthcheck passes + seed      make demo   the four stories
+#   make seed   reload the demo (idempotent)                                    make down   compose down -v
+#
+# Same images and the same env var names as AWS (10 §1); only values differ. Variables come from
+# deploy/compose/.env (created by `make up` from .env.example, with fresh random local keys); the defaults below
+# are what .env.example says, so `docker compose config` works on a fresh clone.
+#
+# Host ports (mk/vars.mk): dynamodb-local 8000 · mock-carrier 8443 · tower-mcp 8080 (→ container 8000, /mcp)
+#                          binding-page 8081 · alerts 8082.  alerts-tls (https :8443) is internal only.
+# Containers reach each other by service name on the one network `tower`.
+name: ask-the-tower
+
+x-store-env: &store-env
+  TOWER_ENV: local
+  DYNAMO_ENDPOINT: http://dynamodb-local:8000
+  TOWER_TABLE_PREFIX: ${TOWER_TABLE_PREFIX:-}
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  # DynamoDB Local accepts any credentials; these are not AWS keys. Never given to ref-client (Bedrock detection).
+  AWS_ACCESS_KEY_ID: dynamodblocal  # DynamoDB Local 2.x wants letters/digits only
+  AWS_SECRET_ACCESS_KEY: dynamodblocal
+  TOWER_LINE_ID_KEY: ${TOWER_LINE_ID_KEY:-}
+  TOWER_MSISDN_KEY: ${TOWER_MSISDN_KEY:-}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  PYTHONUNBUFFERED: "1"
+
+x-healthy: &healthy
+  interval: 5s
+  timeout: 3s
+  retries: 30
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.2
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports: ["${DYNAMO_HOST_PORT:-8000}:8000"]
+    healthcheck:
+      # the image has curl; any HTTP answer (400 for a bare GET) means the JVM is serving
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000 || exit 1"]
+      <<: *healthy
+    networks: [tower]
+
+  # TLS in front of Alerts' webhook sinks: CAMARA sinks must be https:// and the mock refuses anything else
+  # (400 INVALID_SINK). Caddy's internal CA issues the cert; the mock trusts that CA's root via SSL_CERT_FILE.
+  # Caddy keeps its CA private (0600, root); the root certificate alone is copied to the `tls-trust` volume.
+  alerts-tls:
+    image: caddy:2.10-alpine
+    entrypoint: ["/bin/sh", "/etc/caddy/run.sh"]
+    volumes:
+      - ./tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./tls/run.sh:/etc/caddy/run.sh:ro
+      - caddy-data:/data
+      - tls-trust:/trust
+    environment:
+      GOMEMLIMIT: 256MiB  # set, so Caddy's automemlimit does not log the host's memory size
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /trust/root.crt && wget -q -O /dev/null http://127.0.0.1:2019/config/"]
+      <<: *healthy
+    networks: [tower]
+
+  mock-carrier:
+    build: { context: ../.., dockerfile: services/mock-carrier/Dockerfile }
+    image: ask-the-tower/mock-carrier:${IMAGE_TAG:-latest}
+    ports: ["${MOCK_HOST_PORT:-8443}:8443"]
+    environment:
+      MOCK_ADMIN: "1"
+      MOCK_CIBA: ${MOCK_CIBA:-0}
+      MOCK_JITTER_MS: ${MOCK_JITTER_MS:-0}
+      MOCK_PORT: "8443"
+      MOCK_SCENARIO: demo
+      MOCK_BASE_URL: http://mock-carrier:8443
+      MOCK_JWT_SECRET: ${MOCK_JWT_SECRET:-}
+      # the one CA the mock's webhook sender trusts: alerts-tls's (it calls no other https host)
+      SSL_CERT_FILE: /trust/root.crt
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - tls-trust:/trust:ro
+    depends_on:
+      alerts-tls: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8443/healthz', timeout=2)"]
+      <<: *healthy
+    networks: [tower]
+
+  tower-mcp:
+    build: { context: ../.., dockerfile: services/tower-mcp/Dockerfile }
+    image: ask-the-tower/tower-mcp:${IMAGE_TAG:-latest}
+    ports: ["${TOWER_HOST_PORT:-8080}:8000"]
+    environment:
+      <<: *store-env
+      TOWER_BEARER: ${TOWER_BEARER:-}
+      TOWER_PORT: "8000"
+      TOWER_TZ: ${TOWER_TZ:-America/Toronto}
+      TOWER_CLOCK_URL: http://mock-carrier:8443/_admin/clock
+      CARRIER_CLIENT: direct
+      CARRIER_BACKEND: mock
+      CARRIER_BASE_URL: http://mock-carrier:8443
+      CARRIER_CLIENT_ID: tower
+      CARRIER_SECRET_REF: env:CARRIER_CLIENT_SECRET
+      CARRIER_CLIENT_SECRET: ${TOWER_CARRIER_CLIENT_SECRET:-local-dev-tower}
+      BINDING_BASE_URL: ${BINDING_PUBLIC_URL:-http://localhost:8081}
+      CARRIER_SUPPORT_NUMBER: ${CARRIER_SUPPORT_NUMBER:-611}
+      ALERTS_INTERNAL_URL: http://alerts:8082
+      ALERTS_INTERNAL_BEARER: ${INTERNAL_BEARER:-}
+    depends_on:
+      dynamodb-local: { condition: service_healthy }
+      mock-carrier: { condition: service_healthy }
+      alerts: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      <<: *healthy
+      start_period: 120s  # fastmcp's import is slow on a bind-mounted Windows checkout
+    networks: [tower]
+
+  binding-page:
+    build: { context: ../.., dockerfile: services/binding-page/Dockerfile }
+    image: ask-the-tower/binding-page:${IMAGE_TAG:-latest}
+    ports: ["${BINDING_HOST_PORT:-8081}:8081"]
+    environment:
+      <<: *store-env
+      BASE_URL: ${BINDING_PUBLIC_URL:-http://localhost:8081}
+      BIND_REDIRECT_URI: ${BINDING_PUBLIC_URL:-http://localhost:8081}/bind/callback
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      SESSION_TTL_S: ${SESSION_TTL_S:-1800}
+      BIND_ADMIN: "1"
+      PORT: "8081"
+      CARRIER_CLIENT: direct
+      CARRIER_BACKEND: mock
+      CARRIER_BASE_URL: http://mock-carrier:8443
+      CARRIER_CLIENT_ID: binding-page
+      CARRIER_SCOPES: number-verification
+      CARRIER_PROFILE: proactive
+      CARRIER_SECRET_REF: env:CARRIER_CLIENT_SECRET
+      CARRIER_CLIENT_SECRET: ${BINDING_CARRIER_CLIENT_SECRET:-local-dev-binding}
+    depends_on:
+      dynamodb-local: { condition: service_healthy }
+      mock-carrier: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8081/healthz', timeout=2)"]
+      <<: *healthy
+    networks: [tower]
+
+  alerts:
+    build: { context: ../.., dockerfile: services/alerts/Dockerfile }
+    image: ask-the-tower/alerts:${IMAGE_TAG:-latest}
+    ports: ["${ALERTS_HOST_PORT:-8082}:8082"]
+    environment:
+      <<: *store-env
+      ALERTS_MODE: local
+      ALERTS_PORT: "8082"
+      HOOKS_BASE_URL: https://alerts-tls:8443
+      INTERNAL_BEARER: ${INTERNAL_BEARER:-}
+      # "SMS" locally is a log line (`alerts.sms ... SMS to=<label> body=...`): the phone buzz in `make logs`.
+      # Set SMS_GATEWAY_URL to also POST {"to","body"} to an SMS-gateway app on a phone for rehearsal.
+      ALERTS_SENDER: ${ALERTS_SENDER:-log}
+      SMS_GATEWAY_URL: ${SMS_GATEWAY_URL:-}
+      ALERTS_CLOCK: mock
+      ALERTS_CLOCK_SCALE: ${ALERTS_CLOCK_SCALE:-60}
+      ALERTS_DEFAULT_TZ: ${TOWER_TZ:-America/Toronto}
+      CARRIER_CLIENT: direct
+      CARRIER_BACKEND: mock
+      CARRIER_BASE_URL: http://mock-carrier:8443
+      CARRIER_CLIENT_ID: alerts
+      CARRIER_PROFILE: proactive
+      CARRIER_SECRET_REF: env:CARRIER_CLIENT_SECRET
+      CARRIER_CLIENT_SECRET: ${ALERTS_CARRIER_CLIENT_SECRET:-local-dev-alerts}
+    depends_on:
+      dynamodb-local: { condition: service_healthy }
+      mock-carrier: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8082/healthz', timeout=2)"]
+      <<: *healthy
+      start_period: 60s
+    networks: [tower]
+
+  # --- tools (profile: tools) — not started by `make up`; run with `docker compose --profile tools run --rm …`
+  seed:
+    image: ask-the-tower/tower-mcp:${IMAGE_TAG:-latest}  # built by tower-mcp above; has tower_consent + httpx
+    profiles: ["tools"]
+    entrypoint: ["python", "/seed/seed.py"]
+    environment:
+      <<: *store-env
+      MOCK_URL: http://mock-carrier:8443
+      BINDING_URL: http://binding-page:8081
+    volumes:
+      - ./seed:/seed:ro
+    depends_on:
+      binding-page: { condition: service_healthy }
+      mock-carrier: { condition: service_healthy }
+    networks: [tower]
+
+  ref-client:
+    build: { context: ../.., dockerfile: services/ref-client/Dockerfile }
+    image: ask-the-tower/ref-client:${IMAGE_TAG:-latest}
+    profiles: ["tools"]
+    # writes transcripts into the bind-mounted artifacts/ as the invoking user (mk/demo.mk sets HOST_UID/GID)
+    user: "${HOST_UID:-10001}:${HOST_GID:-10001}"
+    environment:
+      TOWER_URL: http://tower-mcp:8000/mcp
+      TOWER_BEARER: ${TOWER_BEARER:-}
+      MOCK_URL: http://mock-carrier:8443
+      BINDING_URL: http://binding-page:8081
+      REF_AGENT: ${REF_AGENT:-auto}
+      REF_ARTIFACTS_DIR: /out
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.nova-micro-v1:0}
+    volumes:
+      - ../../artifacts:/out
+      - ./logs:/logs
+    depends_on:
+      tower-mcp: { condition: service_healthy }
+      binding-page: { condition: service_healthy }
+    networks: [tower]
+
+networks:
+  tower: {}
+
+volumes:
+  caddy-data: {}
+  tls-trust: {}
