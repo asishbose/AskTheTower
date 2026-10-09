@@ -77,8 +77,11 @@ class Recorder:
         return httpx.MockTransport(handle)
 
 
-def expected_codes(utterance: str) -> tuple[str, ...]:
-    return next(s.codes for st in STORIES for s in st.steps if getattr(s, "text", None) == utterance)
+def expected_codes(utterance: str, occurrence: int = 0) -> tuple[str, ...]:
+    """The codes the stories expect for the `occurrence`-th time `utterance` is said (moment 3 asks "Is Mom's line
+    OK?" twice: `OK`, then `NO_CONSENT` after the revoke)."""
+    said = [s.codes for st in STORIES for s in st.steps if getattr(s, "text", None) == utterance]
+    return said[min(occurrence, len(said) - 1)]
 
 
 class StoryAgent:
@@ -90,9 +93,11 @@ class StoryAgent:
     def __init__(self, wrong: str | None = None, next_step: dict[str, Any] | None = None) -> None:
         self.wrong = wrong
         self.next_step = next_step
+        self.asked: dict[str, int] = {}
 
     async def ask(self, utterance: str, *, expect: ToolCall | None = None) -> Turn:
-        codes = list(expected_codes(utterance)) if utterance != self.wrong else ["CARRIER_ERROR"]
+        n = self.asked[utterance] = self.asked.get(utterance, -1) + 1
+        codes = list(expected_codes(utterance, n)) if utterance != self.wrong else ["CARRIER_ERROR"]
         result: dict[str, Any] = {"summary": "Your line is as it was.", "reason_codes": codes}
         if self.next_step:
             result["next_step"] = self.next_step

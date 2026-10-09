@@ -245,3 +245,45 @@ def test_terraform_validate(root: str) -> None:
     assert init.returncode == 0, init.stderr
     r = subprocess.run([tf, "validate", "-no-color"], cwd=TF / root, capture_output=True, text=True, env=env)  # noqa: S603
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+@pytest.mark.unit
+def test_demo_ui_is_never_deployed_to_aws() -> None:
+    """Doc 11 §8.7 / decision: laptop tooling. No Terraform names it, `push` and ECR stay at the five services, and
+    every cloud values file keeps it off (the rendered EKS manifest is checked in tests/helm)."""
+    names = re.compile(r"demo[-_]ui", re.I)
+    tf_files = [
+        p for p in TF.rglob("*") if p.is_file() and ".terraform" not in p.parts and "tfstate" not in p.name
+    ]
+    assert [
+        str(p.relative_to(ROOT))
+        for p in tf_files
+        if names.search(p.read_text(encoding="utf-8", errors="ignore"))
+    ] == []
+
+    five = ["alerts", "binding-page", "mock-carrier", "ref-client", "tower-mcp"]
+    for root in (
+        TF / "main.tf",
+        TF / "ecr" / "main.tf",
+    ):  # the ECR repositories and the images Terraform reads
+        m = re.search(r"services\s*=\s*toset\(\[([^\]]*)\]\)", root.read_text(encoding="utf-8"))
+        assert m, root
+        assert sorted(re.findall(r'"([^"]+)"', m.group(1))) == five, root
+    vars_mk = (ROOT / "mk" / "vars.mk").read_text(encoding="utf-8")
+    services = re.search(r"^SERVICES\s*:=\s*(.+)$", vars_mk, re.M)
+    assert services and sorted(services.group(1).split()) == five
+    push = (ROOT / "scripts" / "push_images.py").read_text(encoding="utf-8")
+    listed = re.search(r"^SERVICES\s*=\s*\[([^\]]*)\]", push, re.M)
+    assert listed and sorted(re.findall(r'"([^"]+)"', listed.group(1))) == five
+    build_mk = (ROOT / "mk" / "build.mk").read_text(encoding="utf-8")
+    recipe = build_mk.split("\npush:", 1)[1].split("\nsbom:", 1)[0]
+    assert "IMAGES" not in recipe and not names.search(recipe)  # push never iterates the six local images
+
+    helm = ROOT / "deploy" / "helm"
+    for values in (helm / "umbrella" / "values.yaml", helm / "umbrella" / "values-eks.yaml"):
+        assert yaml.safe_load(values.read_text(encoding="utf-8"))["demo-ui"]["enabled"] is False, values
+    assert (
+        yaml.safe_load((helm / "demo-ui" / "values-eks.yaml").read_text(encoding="utf-8"))["enabled"] is False
+    )
+    deps = yaml.safe_load((helm / "umbrella" / "Chart.yaml").read_text(encoding="utf-8"))["dependencies"]
+    assert next(d for d in deps if d["name"] == "demo-ui")["condition"] == "demo-ui.enabled"

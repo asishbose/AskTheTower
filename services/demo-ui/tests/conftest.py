@@ -3,6 +3,7 @@ over fake transports (the mock, the binding page and Alerts), so every request t
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -11,7 +12,7 @@ import boto3
 import pytest
 from moto import mock_aws
 from tower_audit import AuditRecord, append
-from tower_consent import LocalLineIdHasher, LocalMsisdnCipher, Store, bind_line, ensure_user
+from tower_consent import LocalLineIdHasher, LocalMsisdnCipher, Store, bind_line, ensure_user, tables
 
 T0 = datetime(2026, 10, 5, 14, 0, tzinfo=UTC)
 ASISH = "+16135550101"  # the 555-01xx fiction of scenarios/demo.yaml, in memory only
@@ -24,10 +25,13 @@ def store(monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
     for k, v in {"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing",
                  "AWS_DEFAULT_REGION": "us-east-1"}.items():  # fmt: skip
         monkeypatch.setenv(k, v)
-    with mock_aws():
-        s = Store(boto3.client("dynamodb", region_name="us-east-1"), "ui-")
+    with mock_aws():  # a session-wide moto may already be active: own tables per test, dropped after
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        s = Store(client, f"ui{uuid.uuid4().hex[:8]}-")
         s.ensure_tables()
         yield s
+        for t in tables.TABLES:
+            client.delete_table(TableName=s.name(t))
 
 
 @pytest.fixture

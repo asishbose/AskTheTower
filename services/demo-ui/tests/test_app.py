@@ -211,3 +211,113 @@ def test_audit_lines_are_cached(store: Store, lines: dict[str, str]) -> None:
     now[0] = 31.0
     src.rows()
     assert src._lines_at == 31.0
+
+
+# --- step 3: every POST guarded, the token on every route but /healthz, ENV=aws and binding 404 ------------------
+
+POSTS: list[tuple[str, dict[str, Any]]] = [
+    ("/say", {"who": "asish", "text": "Is my line OK?"}),
+    ("/macro/moment-1", {}),
+    ("/carrier/reset", {}),
+    ("/carrier/advance", {"minutes": 12}),
+    ("/carrier/fire", {"who": "mom", "event": "sim_swap"}),
+    ("/carrier/fault", {"kind": "500", "n": 1}),
+    ("/carrier/faults/clear", {}),
+    ("/binding/bind-link", {"who": "asish"}),
+    ("/binding/grant", {"action": "revoke"}),
+]
+
+
+async def test_every_post_without_hx_request_is_403_and_reaches_nothing(client: Any) -> None:
+    """One app for all nine POST routes (a moto store per parametrised case costs seconds each on /mnt/c)."""
+    c, rec, deps = client
+    for path, form in POSTS:
+        for headers in ({}, {"HX-Request": "false"}):
+            r = await c.post(path, data=form, headers=headers)
+            assert r.status_code == 403 and "HX-Request" in r.text, (path, headers)
+    assert rec.requests == [] and deps.runner.task is None
+
+
+async def test_token_guards_posts_and_the_sse_stream(store: Store, lines: dict[str, str]) -> None:
+    rec = Recorder()
+    deps = build(store, rec, host="0.0.0.0", ui_token="secret-ui")  # noqa: S104 - the LAN case under test
+    app = create_app(deps)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://ui.test") as c:
+        r = await c.post("/carrier/advance", data={"minutes": 1}, headers=HX)
+        assert r.status_code == 401  # the token is checked before anything else
+        r = await c.post(
+            "/carrier/advance", data={"minutes": 1}, headers={"Authorization": "Bearer secret-ui"}
+        )
+        assert r.status_code == 403  # a token is not a CSRF guard: HX-Request still needed
+        r = await c.post(
+            "/carrier/advance", data={"minutes": 1}, headers={**HX, "Authorization": "Bearer secret-ui"}
+        )
+        assert r.status_code == 200 and "clock +1 min" in r.text
+        assert (await c.get("/events", headers={"Authorization": "Bearer wrong"})).status_code == 401
+        assert (await c.get("/events", cookies={"demo_ui_token": "wrong"})).status_code == 401
+        assert "secret-ui" not in (await c.get("/healthz")).text
+    assert all(q.url.path != "/_admin/clock" or q.method == "POST" for q in rec.requests)
+    assert sum(q.url.path == "/_admin/clock" for q in rec.requests) == 1  # only the authorised call went out
+
+
+async def test_env_aws_switches_off_reset_and_macros_everywhere(store: Store, lines: dict[str, str]) -> None:
+    from demo_ui.deps import ResetUnavailable
+
+    rec = Recorder()
+    deps = build(store, rec, env="aws", mock_url="", alerts_url="")
+    app = create_app(deps)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://ui.test") as c:
+        health = (await c.get("/healthz")).json()
+        assert health["env"] == "aws" and health["panes"] == {
+            "conversation": True, "carrier": False, "feed_sms": False, "binding_admin": False}  # fmt: skip
+        controls = (await c.get("/fragment/conversation-controls")).text
+        assert controls.count("disabled title=") == 4 and "decision 2" in controls  # four macro buttons, why
+        assert "local-only" in (await c.post("/carrier/reset", headers=HX)).text
+        r = await c.post("/binding/grant", data={"action": "revoke"}, headers=HX)
+        assert "on the resident&#39;s own phone at /me" in r.text
+        for event in ("sim_swap", "cf_set", "cf_clear", "unreachable", "reachable"):
+            r = await c.post("/carrier/fire", data={"who": "asish", "event": event}, headers=HX)
+            assert "local-only" in r.text
+        deps.feed.subscribe()
+        await deps.feed.tick()
+    with pytest.raises(ResetUnavailable, match="local-only"):
+        deps.runner.control()
+    assert deps.mock is None and deps.binding is None and deps.runner.task is None
+    assert "the SMS goes to the real phone" in deps.feed.last["sms"]
+    assert "next_step" in deps.feed.last["grants"]
+    assert rec.requests == []
+
+
+async def test_binding_admin_404_degrades_pane_4_to_the_next_step_qr(client: Any) -> None:
+    c, rec, deps = client
+    rec.status = 404  # BIND_ADMIN off: every /_admin/* on the page is 404 (04 §8)
+    deps.feed.subscribe()
+    await deps.feed.tick()
+    assert (
+        "404" in deps.feed.last["grants"] and "QR code from next_step still works" in deps.feed.last["grants"]
+    )
+    r = await c.post("/binding/grant", data={"action": "revoke"}, headers=HX)
+    assert 'class="status fail"' in r.text and "404" in r.text
+    r = await c.post("/binding/bind-link", data={"who": "mom"}, headers=HX)
+    assert "404" in r.text and "<svg" not in r.text
+    assert "SMS list unavailable" in deps.feed.last["sms"]  # Alerts 404 too: the audit goes on
+    assert "SUPPRESSED_REVOKED" in deps.feed.last["audit"]
+
+
+async def test_carrier_controls_wait_for_a_running_macro(client: Any) -> None:
+    import asyncio
+
+    c, rec, deps = client
+    gate = asyncio.Event()
+
+    async def held() -> None:
+        await gate.wait()
+
+    deps.runner.reset = held
+    await c.post("/macro/moment-1", headers=HX)
+    n = len(rec.requests)
+    for path, form in POSTS[2:7]:
+        r = await c.post(path, data=form, headers=HX)
+        assert "a macro is running" in r.text, path
+    assert len(rec.requests) == n  # nothing reached the mock while the macro holds the timeline
+    deps.runner.task.cancel()
