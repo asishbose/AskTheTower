@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from botocore.exceptions import EndpointConnectionError
 from mock_carrier.testing import ASISH, MOM
-from tower_consent import LastState, revoke, validate_alias
+from tower_consent import LastState, revoke, tables, validate_alias
 from tower_mcp.schemas import ToolResult
 from tower_mcp.seed import seed_watch
 from tower_policy import ReasonCode
@@ -37,6 +37,10 @@ ENUMS = {
     "suppressed",
     "user-asish",
     "user-mom",
+    # watch_line facts.profile, a closed enum (02 §2, 06 §11.1)
+    "self",
+    "transplant",
+    "care",
 }
 INT_PARENTS = {"by_actor", "outcomes"}
 
@@ -109,6 +113,11 @@ async def revoked(s: Stack) -> None:
     revoke(s.store, s.seed.mom_line, "user-asish", "watch", revoked_by="user-mom", now=MOCK_START)
 
 
+async def unbound(s: Stack) -> None:
+    """Asish's own line is not bound: the one NOT_BOUND path (04 §5; an unknown alias is NO_CONSENT, D18)."""
+    s.store.delete(tables.LINES, {"line_id": s.seed.asish_line})
+
+
 async def stale(s: Stack) -> None:
     for line in (s.seed.asish_line, s.seed.mom_line):
         seed_watch(
@@ -152,8 +161,9 @@ for line in ("self", "mom"):
     ]
 for tool in ("line_is_ok", "is_reachable", "watch_line"):
     CASES += [
-        (tool, "NOT_BOUND", {"line": "bob"}, nothing),
+        (tool, "NOT_BOUND", {"line": "self"}, unbound),
         (tool, "NO_CONSENT", {"line": "mom"}, revoked),
+        (tool, "NO_CONSENT", {"line": "bob"}, nothing),  # D18: no grant under that alias
     ]
 
 

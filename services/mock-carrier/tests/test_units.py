@@ -40,7 +40,10 @@ def test_parse_helpers() -> None:
 def test_demo_scenario_is_08_section_2() -> None:
     sc = load_scenario(SCENARIOS, "demo")
     assert iso(sc.clock) == "2026-10-05T14:00:00.000Z"
-    assert sorted(sc.lines) == ["+16135550101", "+16135550102"]
+    # Asish, Mom, and the transplant story's two contacts (06 §11.4: partner, neighbour)
+    assert sorted(sc.lines) == ["+16135550101", "+16135550102", "+16135550103", "+16135550104"]
+    assert sc.lines["+16135550103"].mobile_data_client_ids == ["phone-partner"]
+    assert sc.lines["+16135550104"].mobile_data_client_ids == ["phone-neighbour"]
     asish = sc.lines["+16135550101"]
     assert asish.mobile_data_client_ids == ["phone-asish"] and asish.connectivity == ["DATA"]
     assert [(iso(e.at), e.line, e.event) for e in sc.timeline] == [

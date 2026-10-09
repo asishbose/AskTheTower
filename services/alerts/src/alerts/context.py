@@ -20,6 +20,7 @@ from tower_policy import ReasonCode, Thresholds, default_thresholds, policy_vers
 from alerts.clock import Clock
 from alerts.config import Settings
 from alerts.send_backends import SmsSender
+from alerts.sent_log import SentLog
 
 log = logging.getLogger("alerts")
 
@@ -35,6 +36,7 @@ class AlertsService:
     settings: Settings = field(default_factory=Settings)
     thresholds: Thresholds = field(default_factory=default_thresholds)
     metrics: Counter[str] = field(default_factory=Counter)
+    sent_log: SentLog | None = None  # ALERTS_MODE=local only: GET /internal/sent (06 §3.1)
 
     def count(self, name: str, n: int = 1) -> None:
         """Process-local counters (no per-line labels, 10 §2)."""

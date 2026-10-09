@@ -26,7 +26,7 @@ Each entry: *runs against* · *script* · *proves* · *artefact*.
 
 ### 2.2 Tower MCP server — `make showcase-tower`
 - **Runs against:** mock, local bearer, DynamoDB Local.
-- **Script:** MCP Inspector lists the three tools; call `line_is_ok` on the seeded `demo.yaml` state → `OK`; `POST /_admin/lines/<your number>/events {sim_swap}`; call again → `SIM_SWAPPED_RECENT` with the right time; call on an unbound alias → `NOT_BOUND` with a binding URL.
+- **Script:** MCP Inspector lists the three tools; call `line_is_ok` on the seeded `demo.yaml` state → `OK`; `POST /_admin/lines/<your number>/events {sim_swap}`; call again → `SIM_SWAPPED_RECENT` with the right time; call on an unknown alias → `NO_CONSENT`; call as a user with no bound line → `NOT_BOUND` with a binding URL.
 - **Proves:** the envelope, the refusal paths, audit-before-response (kill test runs here), and the p95 number from 200 calls.
 - **Artefact:** `artifacts/latency.md` — the p50/p95 table that goes in the README.
 

@@ -31,6 +31,7 @@ from alerts.context import AlertsService, audit
 from alerts.evaluate import Decision, evaluate
 from alerts.send import DeliveryResult, deliver
 from alerts.send_backends import LogSender, SmsSender, SnsSender, WebhookSmsSender
+from alerts.sent_log import SentLog
 from alerts.subscriptions import watchdog
 
 log = logging.getLogger("alerts.runner")
@@ -148,4 +149,5 @@ def build_service(env: Mapping[str, str] | None = None) -> AlertsService:
         sender=build_sender(settings),
         clock=build_clock(settings, e),
         settings=settings,
+        sent_log=SentLog() if settings.mode == "local" else None,
     )

@@ -6,7 +6,9 @@ It connects to Tower over MCP Streamable HTTP exactly as Alexa+ would, lets a Be
 from their descriptions, and writes transcripts. Three jobs:
 
 1. **Fallback demo surface** — `ref-client demo` drives the three demo moments and the transplant story from a
-   terminal, with the mock carrier's admin calls and clock advances between utterances.
+   terminal, with the mock carrier's admin calls and clock advances between utterances. The transplant story
+   starts with a Settings step: `POST {BINDING_URL}/_admin/watch-settings` saves Asish's `transplant` profile
+   with contacts `[user-partner, user-neighbour]` (06 §11.4); `Control.reset` deletes that Watch first.
 2. **Tool-selection regression** — `ref-client corpus` runs ~40 real phrasings (`corpus/phrasings.yaml`) and
    checks the model picked the expected tool and arguments. A miss is a description bug.
 3. **The one place a model sits** — `src/ref_client/agent.py` is the only language-model call in the repository
@@ -68,6 +70,7 @@ the mock's scenario reset, and Tower's stored-state path would answer from it.
 | `TOWER_URL` | `http://localhost:8080/mcp` | Tower's MCP endpoint (`mk/vars.mk`) |
 | `TOWER_BEARER` | — | local static bearer, or the JWT on AWS |
 | `MOCK_URL` / `BINDING_URL` | `http://localhost:8443` / `http://localhost:8081` | demo controls (local) |
+| `MOCK_ADMIN_TOKEN` | — | bearer for the mock's mutating `/_admin` routes (08 §3); `make demo` reads it from `deploy/compose/.env`. The demo fires events by the line's `ref` (`/_admin/state?view=refs`), never by number |
 | `BEDROCK_MODEL_ID` | `amazon.nova-micro-v1:0` | any Converse model with tool use |
 | `AWS_REGION` | `us-east-1` | Bedrock (and Polly) region |
 | `BEDROCK_ENDPOINT_URL` | — | override the Bedrock endpoint (tests point it at a closed port) |
@@ -102,3 +105,10 @@ are the evidence a judge can read without a device.
 `REF_TRANSCRIPTS_WRITE=1 uv run pytest services/ref-client/tests/test_transcripts.py` rewrites
 `artifacts/transcripts/*.json`. `REF_DDB_BACKEND=moto|local` picks the DynamoDB (default: DynamoDB Local when
 `docker info` works, else moto).
+
+## As a library (the demo UI)
+
+`run_demo(agent_for, control, *, reset=True, on_step=None, replay=())` is what `services/demo-ui` calls (doc 11, G4):
+`on_step` receives a `StepReport` per step (story, `<story>#<n>`, kind, narration, expected vs actual reason
+codes, `ok`, `elapsed_ms`, `replay`, the `Turn`); `reset=False` skips the scenario reload. No product component
+imports `ref_client` (09 §4 "Who may depend on it").

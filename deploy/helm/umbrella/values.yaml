@@ -64,5 +64,8 @@ alerts:
   enabled: true
 ref-client:
   enabled: true
+# The demo control room (doc 11): laptop tooling, on only with values-kind.yaml. Never on a cloud cluster.
+demo-ui:
+  enabled: false
 dynamodb-local:
   enabled: false

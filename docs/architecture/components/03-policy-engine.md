@@ -98,7 +98,7 @@ Thresholds are data (`policy/thresholds.yaml`), not code, but the engine refuses
 | `UNREACHABLE` | changed | "{Name}'s phone has been off the network since {time} — that's the network, nothing more." |
 | `NOT_BOUND` | refuse | "I need to connect your line first — I'll send you a link." |
 | `NO_CONSENT` | refuse | "{Name} hasn't shared that with you." |
-| `STALE_DATA` | refuse | "I can't reach your carrier right now. The last I saw, at {time}, your line was fine." |
+| `STALE_DATA` | refuse | "I can't reach your carrier right now. The last I heard was at {time}." — neutral on purpose: the last-known state may itself show a swap or forwarding, so the sentence says *when*, never *what* (the result's facts carry the state, `stale=true`). SMS: "Can't reach your carrier right now. Last heard at {time}." (Was "…your line was fine." whatever the state — D5.) |
 | `CARRIER_ERROR` | refuse | "I can't reach your carrier right now. Try again in a minute." |
 | `SERVICE_UNAVAILABLE` | refuse | "Something on my side isn't available. Try again in a minute." |
 | `SUPPRESSED_REVOKED` | audit only (06) | — no message; the grant was pulled before the alert went out |
@@ -126,7 +126,7 @@ Templates never include a phone number or a health word (`unwell` included — t
 | reachable | true, false, None |
 | fetched_at | fresh, stale |
 
-Full cross-product is a few hundred cases and runs in under a second. Plus named cases: thresholds file that exceeds API max is rejected; consent checked before facts (a NOT_BOUND line with a swap returns NOT_BOUND, never the swap); one unknown fact with no known alarm is `CARRIER_ERROR`, never `OK`, and a known alarm next to an unknown fact is still `changed` (D4); template output contains no digits that look like a phone number (regex assertion).
+Full cross-product is a few hundred cases and runs in under a second. Plus named cases: thresholds file that exceeds API max is rejected; consent checked before facts (a NOT_BOUND line with a swap returns NOT_BOUND, never the swap); one unknown fact with no known alarm is `CARRIER_ERROR`, never `OK`, and a known alarm next to an unknown fact is still `changed` (D4); every `STALE_DATA` row phrases the same neutral sentence whatever its last-known facts held (D5, `test_d5_stale_phrasing.py`; the policy table prints it in its "STALE_DATA wording" section); template output contains no digits that look like a phone number (regex assertion).
 
 ## 7. Showcase on its own
 

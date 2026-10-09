@@ -66,6 +66,22 @@ def test_consent_before_carrier_error(
     assert evaluate_reachability(f, make_consent(grant="none"), now).reason_codes == [ReasonCode.NO_CONSENT]
 
 
+def test_self_with_no_line_is_not_bound(make_facts: FactsBuilder, now: datetime) -> None:
+    """04 §5: `"self"` with no Line resolves to `bound=False` → NOT_BOUND (the bind-link path)."""
+    view = ConsentView(bound=False, grant="none")
+    f = make_facts(sim_swapped=None, call_forwarding="unknown", reachable=None)
+    assert evaluate_line(f, view, now).reason_codes == [ReasonCode.NOT_BOUND]
+    assert evaluate_reachability(f, view, now).reason_codes == [ReasonCode.NOT_BOUND]
+
+
+def test_alias_with_no_live_grant_is_no_consent(make_facts: FactsBuilder, now: datetime) -> None:
+    """04 §5: an alias with no live Grant resolves to `bound=True, grant="none"` → NO_CONSENT, never NOT_BOUND."""
+    view = ConsentView(bound=True, grant="none")
+    f = make_facts(sim_swapped=None, call_forwarding="unknown", reachable=None)
+    assert evaluate_line(f, view, now).reason_codes == [ReasonCode.NO_CONSENT]
+    assert evaluate_reachability(f, view, now).reason_codes == [ReasonCode.NO_CONSENT]
+
+
 def test_carrier_error_before_staleness_line(
     make_facts: FactsBuilder, make_consent: ConsentBuilder, now: datetime
 ) -> None:

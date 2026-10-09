@@ -43,7 +43,7 @@ Mom binds her own line the same way (her phone, her tap). Then, on the same page
 | `reachability` | `is_reachable(alias)` | no |
 | `watch` | `line_is_ok(alias)`, `is_reachable(alias)`, `watch_line(alias)` | yes — SMS when the line changes |
 
-Grants are to a **named user** (by the Alexa-linked `user_id`, discovered via an invite code the grantee gets from their own binding page), with an **alias** Mom chooses ("Asish" sees her line as "mom"). Revocation is one tap on the same page. Revoking `watch` also **disables** (does not delete) the grantee's Watch on that line, in the same `revoke` call, right after `revoked_at` is set — the line-holder's own Watch and other grantees' Watches are untouched, and revoking `reachability` changes no Watch (it never covered alerts). The page makes no call to Alerts: the Alerts watchdog reconciles the line's carrier subscriptions against its enabled, consented Watches on the next poll and unsubscribes what nothing needs (06 §4). By voice, Mom can *see* who has grants (`watch_line` status) but not revoke — revocation stays on the page, deliberately, so it's never a misheard sentence.
+Grants are to a **named user** (by the Alexa-linked `user_id`, discovered via an invite code the grantee gets from their own binding page), with an **alias** Mom chooses ("Asish" sees her line as "mom"). Revocation is one tap on the same page. Revoking `watch` also **disables** (does not delete) the grantee's Watch on that line, in the same `revoke` call, right after `revoked_at` is set — other grantees' Watches are untouched, and revoking `reachability` changes no Watch (it never covered alerts). The line-holder's own Watch stays enabled; the revoked grantee is only removed from its contact chain (§9.4). The page makes no call to Alerts: the Alerts watchdog reconciles the line's carrier subscriptions against its enabled, consented Watches on the next poll and unsubscribes what nothing needs (06 §4). By voice, Mom can *see* who has grants (`watch_line` status) but not revoke — revocation stays on the page, deliberately, so it's never a misheard sentence.
 
 Nothing else is grantable. There is no `owner` grant for another person; ownership is binding.
 
@@ -69,13 +69,16 @@ resolve(user_id, line: "self" | alias) -> ConsentView + line_id
 
 - `"self"` → the Line whose `owner_user_id == user_id`; grant = `owner`.
 - alias → the Grant where `grantee_user_id == user_id and alias == line and revoked_at is None`; grant = its type. If only *revoked* grants carry that alias, the result is `bound=True, grant="none"` with `revoked_at` and the `line_id` set, so the engine answers `NO_CONSENT` (not `NOT_BOUND`) and the refused attempt is audited on that line. The query filters on `alias` only, so this is still one request.
-- Anything else → `bound=False` or `grant="none"`, and the policy engine refuses before any carrier call.
+- An alias with **no grant at all** (unknown, another grantee's alias, or not a valid alias — the last with zero requests) → `bound=True, grant="none"`, no `line_id`. The engine answers `NO_CONSENT` with `next_step = ask_consent`: no bind token is minted, because it is not the caller's own line that is unbound, and there is no line to audit (D18, built 2026-10-09).
+- `"self"` with no Line → `bound=False`: `NOT_BOUND` and a bind link. This is the only path that mints a bind token.
+
+In short: `"self"` with no Line → `bound=False`; an alias with no live Grant → `bound=True, grant="none"`. Policy refuses before any carrier call in both cases.
 
 One `GetItem` or one `Query`; this is the single DynamoDB read on the hot path.
 
 ## 6. What the resident sees
 
-- On the binding page: the lines they've bound, who they've granted what, one button each to revoke. The page session is a signed cookie set by a successful bind (30 min); every grant/revoke form also carries a CSRF token.
+- On the binding page: the lines they've bound, a **Watching** card per owned line (profile and contacts, §9.3), who they've granted what, one button each to revoke. The page session is a signed cookie set by a successful bind (30 min); every grant/revoke form also carries a CSRF token.
 - By voice: "Alexa, who can see my line?" and "who checked my line this week?" → `watch_line(line="self", enable=null)`, which carries grants and recent checks (02 §2, 07 §4).
 
 ## 7. Tests
@@ -84,13 +87,14 @@ One `GetItem` or one `Query`; this is the single DynamoDB read on the hot path.
 - Token reuse, token expiry, token for a different user → all refused.
 - Grant then revoke → `resolve` flips to `none` within one read; an in-flight alert for that line is dropped (06 re-resolves before sending).
 - Alias collision (two grants to the same user with the same alias) → rejected at grant time.
+- An alias with no grant → `NO_CONSENT`, no bind token, no audit row, no carrier call, for every tool (`services/tower-mcp/tests/test_d18_unknown_alias.py`).
 - Raw number never appears in any log line or any tool result (grep assertion across captured output).
 
 ## 8. Showcase on its own
 
 Open the binding page on a phone with Wi-Fi off against the mock carrier; bind; grant `watch` to a second test user; revoke. Each step shows in a small admin view of the tables. What it proves: the one tap is real, the grant model is real, and nothing is typed. See `testing-and-showcase.md` §2.4.
 
-## 9. Watch settings: profile and contacts (resolves D8, D9; specified, not yet built)
+## 9. Watch settings: profile and contacts (resolves D8, D9; built 2026-10-09)
 
 The line-holder chooses, on the binding page and on their own phone, **how their line is watched** (the profile) and **who is texted, in order** (the contacts). "Alexa, watch my line" (`watch_line(self, true)`) then turns watching on with what is stored. Nothing new crosses the Alexa+ edge. `watch_line`'s arguments and description (01 §2) do not change, and no phone number is typed, stored or spoken.
 
@@ -114,7 +118,9 @@ A **contact** is a reference, never a number. It is a `user_id` that holds an **
 |---|---|
 | `GET /me` | Adds a **Watching** card per owned line (9.3) |
 | `POST /me/lines/{line_id}/watch-settings` form `{profile, contact_1, contact_2, contact_3, csrf}` | Validate → `tower_consent.set_watch_settings` → audit → if the Watch is enabled, `POST {ALERTS}/internal/watch {line_id, watcher_user_id: owner, enable: true, profile}` (re-subscribes the kinds for the new profile, 06 §1). An Alerts failure is logged and swallowed, as in `watch_line` (D24): the polls cover it. Then 303 → `/me` |
-| `POST /_admin/watch-settings` JSON `{owner_user_id, profile, contacts: [user_id…], line_id?, reset?}` | **Local only** (`TOWER_ENV=local` and `BIND_ADMIN=1`, else 404), like `/_admin/grants`. Calls the same `set_watch_settings`. Used by the seed and `ref-client demo`. `reset: true` deletes the owner's Watch row so a demo re-run starts clean |
+| `POST /_admin/watch-settings` JSON `{owner_user_id, profile, contacts: [user_id…], line_id?, reset?}` | **Local only** (`TOWER_ENV=local` and `BIND_ADMIN=1`, else 404), like `/_admin/grants`. Same save path as the form (validation, audit row, Alerts call); a refusal is 422. Used by `ref-client demo` and the e2e test. `reset: true` deletes the owner's Watch row (no audit row: a demo reset, not a resident's choice) so a demo re-run starts clean |
+
+*As built:* the form's radio values are behaviour keys (`fraud` → `self`, `reachable` → `transplant`, `daytime` → `care`) so the page source never carries the profile's internal name (§9.3); the route also accepts the profile names themselves. Contact fields are read as `contact_1…contact_N` in order, so a fourth one is refused (422) rather than silently dropped. Code: `tower_consent/watch_settings.py`, `binding_page/watching.py` (save + card), `binding_page/routes/watch_settings.py`, `binding_page/alerts.py` (`ALERTS_INTERNAL_URL` / `ALERTS_INTERNAL_BEARER`; unset → log-only stub).
 
 `set_watch_settings(store, line_id, acting_user_id, profile, contacts, now) -> Watch` enforces the following. Every refusal writes nothing.
 
@@ -153,7 +159,7 @@ On each owned line, the **Watching** card shows the following. The page never sh
 | Failure | Behaviour |
 |---|---|
 | Store down on save | 503 page, nothing half-written: the Watch is one `UpdateItem`, written before the audit row |
-| Audit append fails after the write | The page shows an error. The row is retried once, then `AUDIT_FAILED` is counted (07). The settings stand: they gate nothing on the hot path |
+| Audit append fails after the write | The page shows an error (500). The row is retried once, then counted (`deps.metrics["audit_failed"]`; there is no `AUDIT_FAILED` reason code). The settings stand, and an enabled Watch is still re-subscribed: they gate nothing on the hot path |
 | Alerts `/internal/watch` fails | Logged, swallowed. The profile's poll schedule finds the Watch (06 §1) |
 
 ### 9.6 Deliberately not done
@@ -166,4 +172,4 @@ On each owned line, the **Watching** card shows the following. The page never sh
 
 ### 9.7 Tests
 
-In `services/binding-page/tests` and `packages/tower-consent/tests`, these are acceptance criteria 1–8 in 06 §11.5.
+In `services/binding-page/tests` and `packages/tower-consent/tests`, these are acceptance criteria 1–8 in 06 §11.5: `packages/tower-consent/tests/test_d9_watch_settings.py`, `services/binding-page/tests/test_d9_watch_settings_page.py`.

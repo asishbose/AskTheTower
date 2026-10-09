@@ -67,7 +67,14 @@ async def run(fast: bool, scale: float) -> int:
     from mock_carrier.settings import Settings as MockSettings
     from mock_carrier.testing import BASE
     from tower_audit import HmacMarkerSigner, verify
-    from tower_consent import LocalLineIdHasher, LocalMsisdnCipher, Store, revoke
+    from tower_consent import (
+        LocalLineIdHasher,
+        LocalMsisdnCipher,
+        Store,
+        revoke,
+        set_watch_settings,
+        upsert_watch,
+    )
 
     endpoint = os.environ.get("TOWER_DYNAMODB_ENDPOINT")
     store = Store(
@@ -146,12 +153,23 @@ async def run(fast: bool, scale: float) -> int:
         say(f"   texts sent: {len(sender.sent) - n}")
 
         # --- part 2: transplant scenario ------------------------------------------------------------------
-        say("\n== 5. transplant: Asish's line, watched by his partner; chain [partner (ack), neighbour]")
+        say(
+            "\n== 5. transplant: Asish saves 'must stay reachable' on the binding page, contacts in order "
+            "[partner (ack), neighbour]; then 'Alexa, watch my line' (04 §9, 06 §11)"
+        )
         await mock.post("/_admin/scenarios/load", json={"name": "transplant"})
-        w.grant_watch(ASISH, "user-asish", "user-partner", "asish")
-        w.watch(ASISH, "user-partner", "transplant", [("user-partner", True), ("user-neighbour", False)])
         asish = w.lines[ASISH]
-        r = await alerts.post("/internal/watch", json={"line_id": asish, "enable": True}, headers=auth)
+        for contact in ("user-partner", "user-neighbour"):
+            w.grant_watch(ASISH, "user-asish", contact, "asish")  # each contact's consent: their watch grant
+        saved = set_watch_settings(
+            store, asish, "user-asish", "transplant", ["user-partner", "user-neighbour"], T0
+        )
+        upsert_watch(store, saved.model_copy(update={"enabled": True}))  # what watch_line(self, true) writes
+        r = await alerts.post(
+            "/internal/watch",
+            json={"line_id": asish, "watcher_user_id": "user-asish", "enable": True, "profile": "transplant"},
+            headers=auth,
+        )
         say(f"   internal API → {r.status_code} {r.json()}")
         say(f"   scheduler: transplant poll every simulated minute; 1 simulated minute = {step_s:.2f} s real")
         first_text = second_text = None

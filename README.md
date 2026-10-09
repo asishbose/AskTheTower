@@ -114,6 +114,7 @@ Demo and showcase
   showcase-alerts      Proactive path: watch, fire, buzz, revoke, suppressed, escalation
   showcase-audit       Audit: Mom's view, chain verified, tamper detection
   showcase-ref         Reference client: three moments from the terminal, then the corpus
+  showcase-ui          Demo control room on the host at 127.0.0.1:8090 (needs make up): Bedrock when credentials resolve, else scripted
   showcase-alexa       Alexa+ simulator script and Tower log tail
   showcase-infra       Clean-machine timing; terraform plan; teardown
   showcase             testing-and-showcase.md §4 steps 1–9 in order against the running stack, pausing (SHOWCASE_PAUSE=0: no pauses)
@@ -133,7 +134,7 @@ Tests and checks
   secrets-check        gitleaks over the full git history + grep of artifacts/ and docs/ — pre-submission gate
 
 Images
-  build                Build all five images (tagged with git sha and latest)
+  build                Build all six images: the five services + demo-ui (tagged with git sha and latest; demo-ui is never pushed)
   build-%              Build one image, e.g. make build-tower-mcp
   push                 Build linux/arm64 (buildx) and push to ECR, tags <git sha> + latest (ENV=eks|aws; `make ecr-up` once first)
   sbom                 SBOM per image → artifacts/sbom/*.json (syft, CycloneDX)
@@ -227,6 +228,7 @@ New to the project, or presenting it? Start with the [ten-page explainer](docs/a
 | 8 | [Mock carrier](docs/architecture/components/08-mock-carrier.md) | CAMARA-conformant, with a scenario engine, clock and admin API. The demo default. |
 | 9 | [Reference client](docs/architecture/components/09-reference-client.md) | A Strands agent on Bedrock. It is the test harness, and the demo path if Alexa+ access slips. |
 | 10 | [Scheduler and infra](docs/architecture/components/10-scheduler-and-infra.md) | Tables, schedules, keys, Terraform, Helm and the one-command run. |
+| 11 | [Demo UI](docs/architecture/components/11-demo-ui.md) | Laptop-only control room: conversation, carrier controls, live SMS and audit feed, bind QR code; runs the `make demo` stories with a pass/fail per step. Never deployed. |
 
 **The three paths** ([`e2e-wiring.md`](docs/architecture/e2e-wiring.md)):
 

@@ -50,3 +50,7 @@ alerts:
 
 ref-client:
   envName: local
+
+# The demo control room (doc 11), scripted agent: kubectl -n ask-the-tower port-forward svc/demo-ui 8090:8090
+demo-ui:
+  enabled: true

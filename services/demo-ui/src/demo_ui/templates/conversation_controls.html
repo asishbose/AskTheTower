@@ -1,0 +1,15 @@
+<div class="macros">
+  {% for name, label in macros %}
+  <button {% if not carrier %}disabled title="{{ off_reason }}"{% endif %} hx-post="/macro/{{ name }}" hx-target="#run-status" hx-swap="innerHTML">{{ label }}</button>
+  {% endfor %}
+</div>
+{% if not carrier %}<p class="off">{{ off_reason }}</p>{% endif %}
+{% for name, label in macros %}{% if captions[name] %}<p class="caption"><b>{{ label }}:</b> {{ captions[name] }}</p>{% endif %}{% endfor %}
+<form class="say" hx-post="/say" hx-target="#run-status" hx-swap="innerHTML">
+  <select name="who" {% if personas | length == 1 %}disabled{% endif %}>
+    {% for p in personas %}<option value="{{ p }}">{{ p | capitalize }}</option>{% endfor %}
+  </select>
+  {% if personas | length == 1 %}<input type="hidden" name="who" value="{{ personas[0] }}">{% endif %}
+  <input name="text" maxlength="200" placeholder="{{ 'Is my line OK?' if free_text else 'free text needs Bedrock' }}" {% if not free_text %}disabled{% endif %}>
+  <button {% if not free_text %}disabled{% endif %}>Say</button>
+</form>

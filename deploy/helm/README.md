@@ -12,6 +12,8 @@ deploy/helm/
   alerts/           Deployment (ALERTS_MODE=k8s: hooks + internal API), CronJobs for 10 §3, Ingress (/hooks only),
                     https sidecar for in-cluster webhook sinks (kind), ServiceAccount (IRSA: DynamoDB, KMS, SNS)
   ref-client/       Job (`ref-client demo`, per release revision), optional toolbox Deployment, ServiceAccount (Bedrock)
+  demo-ui/          the demo control room (doc 11): Deployment + ClusterIP Service, kind only (`values-kind.yaml`
+                    enabled, `values-eks.yaml` enabled=false: laptop tooling, never on a cloud cluster)
   dynamodb-local/   kind only (disabled on EKS)
   umbrella/         the six as dependencies; generated Secret, local TLS, seed hook Job;
                     values.yaml (neutral) · values-kind.yaml · values-eks.yaml (+ values-eks.generated.yaml)
@@ -69,6 +71,7 @@ helm upgrade --install att deploy/helm/umbrella -n ask-the-tower --create-namesp
 | Binding admin | `BIND_ADMIN=1` (seed bind links, demo revoke) | off |
 | Seed | compose seed: bind through the page's one-tap flow | AWS seed: mock reset + `seed_demo` with KMS line ids |
 | Tower HA | 1 replica | 2 replicas, HPA 2–4, PDB |
+| Demo UI (doc 11) | on, scripted agent; `kubectl port-forward svc/demo-ui 8090:8090` | off (never deployed to a cloud cluster) |
 
 The generated file carries only what Terraform knows (repositories, tag, region, table prefix, key ARNs, SNS topic,
 IRSA role per service account, ALB hosts, ACM certificate, public subnets, VPC CIDR, Bedrock model). The umbrella

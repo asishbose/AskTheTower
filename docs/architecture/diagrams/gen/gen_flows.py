@@ -66,7 +66,7 @@ BLOCKS: list[dict[str, object]] = [
         "code": "NOT_BOUND",
         "rows": [
             ("p", "user_id", "the caller is known"),
-            ("p", "no line", "no Line for \"self\", or no grant under that alias → bound=False (resolve.py:58, :87)"),
+            ("p", "no line", "no Line for \"self\" → bound=False (resolve.py:62); an alias is never NOT_BOUND (D18)"),
             ("x", "EXIT · NOT_BOUND", "engine.py:28 — before any fact, so nothing about the line leaks"),
             ("s", "not reached", "no carrier call"),
             ("s", "not reached", "the gate is the policy"),
@@ -81,11 +81,11 @@ BLOCKS: list[dict[str, object]] = [
         "code": "NO_CONSENT",
         "rows": [
             ("p", "user_id", "the caller is known"),
-            ("p", "revoked / out of scope", "alias has only revoked grants (resolve.py:84), or the grant does not cover this tool (common.py:102)"),
+            ("p", "no grant / revoked / out of scope", "alias with no grant (resolve.py:90, D18) or only revoked ones (resolve.py:89), or the grant does not cover this tool (common.py:102)"),
             ("x", "EXIT · NO_CONSENT", "engine.py:30 — grant none or revoked_at set"),
             ("s", "not reached", "no carrier call"),
             ("s", "not reached", "the gate is the policy"),
-            ("p", "audit row", "refused · NO_CONSENT on that line (common.py:150 audited)"),
+            ("p", "audit row", "refused · NO_CONSENT on that line (common.py:150 audited); an alias with no grant has no line, so no row"),
             ("p", "next_step ask_consent", "no link: the line-holder grants on their own page"),
         ],
         "jump": (2, 5),
@@ -98,14 +98,14 @@ BLOCKS: list[dict[str, object]] = [
             ("p", "user_id", "the caller is known"),
             ("p", "owner or active grant", "one read"),
             ("p", "consent holds", "the line may be checked"),
-            ("p", "carrier times out", "both calls > 300 ms (timeouts.py:17, errors.py:124) or breaker open (errors.py:138); a Watch state exists → use it (line_is_ok.py:167)"),
+            ("p", "carrier times out", "a call > 300 ms (timeouts.py:17, errors.py:124) or breaker open (errors.py:138) and the live answer would be refused; a Watch state exists → use it (line_is_ok.py)"),
             ("x", "EXIT · STALE_DATA", "that state is older than STALE 10 min (engine.py:45)"),
             ("p", "audit row", "refused · STALE_DATA · source=watch"),
             ("p", "last-known facts", "stale=true, as_of = the Watch's time; next_step none"),
         ],
         "jump": None,
-        "says": "“I can't reach your carrier right now. The last I saw, at 2:14 today, your line was fine.”",
-        "note": "The template says “fine” whatever the last state showed (D5).",
+        "says": "“I can't reach your carrier right now. The last I heard was at 2:14 today.”",
+        "note": "Neutral on purpose: the last state may show a swap or forwarding (D5, fixed 2026-10-09).",
     },
     {
         "code": "CARRIER_ERROR",
@@ -114,13 +114,13 @@ BLOCKS: list[dict[str, object]] = [
             ("p", "owner or active grant", "one read"),
             ("p", "consent holds", "the line may be checked"),
             ("p", "carrier fails, nothing to fall back on", "5xx (503 → errors.py:49), or breaker open after 5 × 5xx for 60 s (breaker.py:42), and no Watch state"),
-            ("x", "EXIT · CARRIER_ERROR", "both facts unknown (engine.py:43), checked before staleness"),
+            ("x", "EXIT · CARRIER_ERROR", "any fact unknown and no known alarm (engine.py:52), checked before staleness"),
             ("p", "audit row", "refused · CARRIER_ERROR · source=carrier"),
             ("p", "no facts", "next_step none; no carrier text ever reaches the result"),
         ],
         "jump": None,
         "says": "“I can't reach your carrier right now. Try again in a minute.”",
-        "note": "One failed call is not a refusal: the other fact alone can answer OK (D4).",
+        "note": "One failed call is enough to refuse, unless the other fact alarms (D4, fixed 2026-10-09).",
     },
     {
         "code": "SERVICE_UNAVAILABLE",
@@ -292,11 +292,11 @@ def page_profiles() -> Page:
         ], "white"),
         ("0:35–0:40 · first SMS", [
             "first evaluation ≥ 20 min dark → UNREACHABLE (windows.py:56); polls every 5 min, so up to 5 min late (D11)",
-            "deliver(): re-resolve → rate claim → audit changed → SMS to escalation[0] + line-holder",
+            "deliver(): re-resolve → rate claim → audit changed → line-holder + escalation[0], by their own alias; no active grant → skipped, next at once (escalation.py:86)",
         ], "amber"),
         ("0:50–0:55 · escalation[1]", [
-            "no ack after ESCALATE_NEXT 15 min → tick (every poll + rate(5 min) schedule; escalation.py:105)",
-            "re-resolve grant → audit changed → SMS to escalation[1]",
+            "no ack after ESCALATE_NEXT 15 min → tick (every poll + rate(5 min) schedule; escalation.py:193)",
+            "walks the snapshot parked with the alert (remaining, 06 §11.3), re-checking each step's grant → audit changed → SMS",
         ], "amber"),
         ("within 6 h · repeat", [
             "same reason for the same line and watcher → audited suppressed · UNREACHABLE, not sent (windows.py:75 + atomic claim in AlertsState)",
@@ -320,16 +320,16 @@ def page_profiles() -> Page:
         ], "teal"),
         ("ACK_IGNORED_SWAPPED_LINE", [
             "the reply comes from a line SIM-swapped < 24 h ago (ACK_DISTRUST; escalation.py:161; a carrier error counts as swapped)",
-            "audited; chain continues; the watcher's next SMS adds “A reply from the affected line was ignored.” (templates.py:15)",
+            "audited; chain continues; the next SMS adds “A reply from the affected line was ignored.” (templates.py:15) — the watcher's, or on the line-holder's own chain the next contact's",
         ], "exit"),
         ("Revoked before send → SUPPRESSED_REVOKED", [
             "line-holder revokes on the binding page; deliver() (send.py:174) or the tick (escalation.py:118) re-reads the grant",
             "audit suppressed · SUPPRESSED_REVOKED; nothing sent; no rate claim; chain cleared",
         ], "exit"),
-        ("Who sets the profile and the chain? (specified, not built: D8, D9)", [
-            "the line-holder on the binding page (04 §9): profile + up to 3 watch grantees in order on their own Watch; ack on all but the last.",
-            "\"watch my line\" keeps them (06 §11). Until built, only the showcase harness (alerts/testing.py) seeds this band",
-        ], "ghost"),
+        ("Who sets the profile and the chain? (built: D8, D9)", [
+            "the line-holder on the binding page /me (04 §9; watch_settings.py:26): profile + up to 3 watch grantees in order on their own Watch; ack on all but the last.",
+            "\"watch my line\" keeps them (watch_line.py:121); revoking a contact drops them from the chain (watches.py:83)",
+        ], "teal"),
     ]  # fmt: skip
     for i, (t, body, kind) in enumerate(branches):
         p.box(f"tr_b{i}", 50 + i * (bw4 + 14), wy + 28, bw4, 92, t, body, kind, dashed=kind == "ghost", size=10)

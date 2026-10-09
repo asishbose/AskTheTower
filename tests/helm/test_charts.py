@@ -23,7 +23,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 HELM = ROOT / "deploy" / "helm"
 UMBRELLA = HELM / "umbrella"
-CHARTS = ["mock-carrier", "tower-mcp", "binding-page", "alerts", "ref-client", "dynamodb-local"]
+CHARTS = ["mock-carrier", "tower-mcp", "binding-page", "alerts", "ref-client", "dynamodb-local", "demo-ui"]
 TOOLS = Path.home() / "tools"
 
 
@@ -170,6 +170,7 @@ def test_charts_use_the_compose_env_names() -> None:
         "tower-mcp": "tower-mcp",
         "binding-page": "binding-page",
         "alerts": "alerts",
+        "demo-ui": "demo-ui",
     }
     store = set(yaml.safe_load((UMBRELLA / "values.yaml").read_text())["global"]["storeEnv"])
     kind_store = set(yaml.safe_load((UMBRELLA / "values-kind.yaml").read_text())["global"]["storeEnv"])
@@ -264,12 +265,15 @@ def test_umbrella_template_passes_kubeconform(built_umbrella: Path, target: str,
     manifest = render(built_umbrella, *values)
     kinds = [d["kind"] for d in yaml.safe_load_all(manifest) if d]
     if target == "kind":
-        assert "CronJob" not in kinds and kinds.count("Deployment") == 5  # incl. dynamodb-local
+        # incl. dynamodb-local and demo-ui (doc 11: kind only)
+        assert "CronJob" not in kinds and kinds.count("Deployment") == 6
     else:
         assert (
             kinds.count("CronJob") == 5 and kinds.count("Ingress") == 3 and "HorizontalPodAutoscaler" in kinds
         )
         assert not any(d["metadata"]["name"] == "dynamodb-local" for d in yaml.safe_load_all(manifest) if d)
+        # doc 11 §8.7: the demo UI is never on a cloud cluster
+        assert not any(d["metadata"]["name"] == "demo-ui" for d in yaml.safe_load_all(manifest) if d)
     kc = kubeconform_bin()
     if kc is None:
         pytest.skip("kubeconform not installed (PATH or ~/tools)")

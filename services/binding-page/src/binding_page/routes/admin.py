@@ -11,6 +11,10 @@ view shortens anyway).
                                            grant or revoke on the owner's line, idempotent — the compose seed and
                                            `ref-client demo` (moment 3's revoke and re-grant) use it instead of
                                            driving the page session; the resident's own path stays `/me`
+- `POST /_admin/watch-settings {owner_user_id, profile, contacts, line_id?, reset?}`
+                                           the line-holder's profile and contacts through the same
+                                           `watching.save` the `/me` form uses (04 §9.2); `reset: true` deletes
+                                           the owner's Watch so a demo re-run starts clean
 """
 
 from __future__ import annotations
@@ -21,10 +25,11 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict
-from tower_consent import create_bind_token, list_grants, list_lines, resolve, revoke, tables
+from tower_consent import create_bind_token, delete_watch, list_grants, list_lines, resolve, revoke, tables
 from tower_consent import grant as make_grant
 from tower_consent.errors import ConsentError
 
+from binding_page import watching
 from binding_page.deps import Deps, get_deps
 from binding_page.templating import render
 
@@ -92,22 +97,26 @@ class AdminGrant(BaseModel):
     line_id: str | None = None  # needed only when the owner holds more than one line
 
 
+def _owners_line(deps: Deps, owner_user_id: str, line_id: str | None) -> str:
+    """The owner's only line, or `line_id` if they hold it; 409 otherwise."""
+    owned: list[str] = [ln.line_id for ln in list_lines(deps.store, owner_user_id)]
+    if line_id is not None:
+        if line_id not in owned:
+            raise HTTPException(status_code=409, detail="the owner holds no such line")
+        return line_id
+    if len(owned) == 1:
+        return owned[0]
+    raise HTTPException(
+        status_code=409, detail=f"the owner holds {len(owned)} lines; bind first or pass line_id"
+    )
+
+
 @router.post("/grants")
 def admin_grant(body: AdminGrant, deps: Annotated[Deps, Depends(get_deps)]) -> dict[str, Any]:
     """Idempotent: granting an active grant or revoking a revoked/absent one changes nothing (`changed: false`).
     The same `tower_consent.grant` / `revoke` the resident's `/me` page calls, acting as the owner."""
     _require_admin(deps)
-    owned = [ln.line_id for ln in list_lines(deps.store, body.owner_user_id)]
-    if body.line_id is not None:
-        if body.line_id not in owned:
-            raise HTTPException(status_code=409, detail="the owner holds no such line")
-        line_id = body.line_id
-    elif len(owned) == 1:
-        line_id = owned[0]
-    else:
-        raise HTTPException(
-            status_code=409, detail=f"the owner holds {len(owned)} lines; bind first or pass line_id"
-        )
+    line_id = _owners_line(deps, body.owner_user_id, body.line_id)
     active = any(
         g.grantee_user_id == body.grantee_user_id and g.grant == body.grant
         for g in list_grants(deps.store, line_id, include_revoked=False)
@@ -143,4 +152,38 @@ def admin_grant(body: AdminGrant, deps: Annotated[Deps, Depends(get_deps)]) -> d
         "grant": body.grant,
         "active": body.action == "grant",
         "changed": changed,
+    }
+
+
+class AdminWatchSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    owner_user_id: str
+    profile: str
+    contacts: list[str] = []
+    line_id: str | None = None  # needed only when the owner holds more than one line
+    reset: bool = False
+
+
+@router.post("/watch-settings")
+def admin_watch_settings(
+    body: AdminWatchSettings, deps: Annotated[Deps, Depends(get_deps)]
+) -> dict[str, Any]:
+    """The `/me` form's save, acting as the line-holder (same validation, same audit row, same Alerts call).
+    `reset: true` only deletes the owner's Watch (no audit row: a demo reset, not a resident's choice)."""
+    _require_admin(deps)
+    line_id = _owners_line(deps, body.owner_user_id, body.line_id)
+    if body.reset:
+        return {"line_id": line_id, "reset": delete_watch(deps.store, line_id, body.owner_user_id)}
+    try:
+        saved = watching.save(deps, line_id, body.owner_user_id, body.profile, body.contacts)
+    except ConsentError as e:
+        raise HTTPException(status_code=422, detail=type(e).__name__) from None
+    w = saved.watch
+    return {
+        "line_id": line_id,
+        "profile": w.profile,
+        "contacts": [s.user_id for s in w.escalation],
+        "enabled": w.enabled,
+        "audited": saved.audited,
     }

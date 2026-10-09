@@ -97,14 +97,22 @@ async def test_tower_unaffected_by_a_bedrock_failure(ref_stack: RefStack, dead_b
 
 @pytest.mark.unit
 def test_nothing_depends_on_the_reference_client() -> None:
-    """No package or other service imports `ref_client`; no compose/helm service waits on it."""
+    """No package or product service imports `ref_client`; no compose/helm service waits on it.
+
+    The rule (09 §1, design rule 1): the product — Tower, Alerts, the binding page, the mock, `packages/` — never
+    has the model on its path. The demo UI (doc 11) is the one exception, by design: laptop-only demo tooling
+    outside paths A/B/C (e2e §7) that drives Tower *through* the reference client, as `make demo` does. It must
+    stay out of the product in turn: nothing imports `demo_ui` either.
+    """
     pattern = re.compile(r"^\s*(from|import)\s+ref_client\b", re.M)
+    tooling = re.compile(r"^\s*(from|import)\s+demo_ui\b", re.M)
     offenders = []
     for base in ("packages", "services"):
         for f in (ROOT / base).rglob("*.py"):
-            if "ref-client" in f.parts or ".venv" in f.parts:
+            if "ref-client" in f.parts or "demo-ui" in f.parts or ".venv" in f.parts:
                 continue
-            if pattern.search(f.read_text(encoding="utf-8", errors="ignore")):
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            if pattern.search(text) or tooling.search(text):
                 offenders.append(str(f.relative_to(ROOT)))
     assert offenders == []
     compose = ROOT / "deploy" / "compose" / "docker-compose.yml"

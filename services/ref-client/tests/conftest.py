@@ -27,7 +27,17 @@ from mock_carrier.testing import ASISH, BASE, MOM
 from ref_client.agent import ScriptedAgent
 from ref_client.demo import Control
 from ref_client.mcp_client import TowerClient, TowerConfig
-from tower_consent import LocalLineIdHasher, LocalMsisdnCipher, Store, errors, grant, revoke, tables
+from tower_consent import (
+    LocalLineIdHasher,
+    LocalMsisdnCipher,
+    Store,
+    delete_watch,
+    errors,
+    grant,
+    revoke,
+    set_watch_settings,
+    tables,
+)
 from tower_mcp.deps import FixedClock, RecordingAlerts, Settings, build_deps
 from tower_mcp.seed import DemoSeed, seed_demo
 from tower_mcp.server import create_app
@@ -139,6 +149,43 @@ class InProcessGrants:
 
 
 @dataclass
+class InProcessSettings:
+    """Asish's watch settings (04 §9), set directly in the store — stands in for `/_admin/watch-settings`.
+    The contacts get their `watch` grants here, as the compose seed gives them (06 §11.4)."""
+
+    store: Store
+    seed: DemoSeed
+    clock: FixedClock
+    contacts: tuple[str, ...] = ("user-partner", "user-neighbour")
+
+    async def save_transplant(self) -> None:
+        for contact in self.contacts:
+            try:
+                grant(
+                    self.store,
+                    self.seed.asish_line,
+                    contact,
+                    "watch",
+                    "asish",
+                    granted_by=self.seed.asish_user,
+                    now=self.clock.at,
+                )
+            except errors.GrantExists:
+                pass  # idempotent, like the seed
+        set_watch_settings(
+            self.store,
+            self.seed.asish_line,
+            self.seed.asish_user,
+            "transplant",
+            list(self.contacts),
+            self.clock.at,
+        )
+
+    async def reset(self) -> None:
+        delete_watch(self.store, self.seed.asish_line, self.seed.asish_user)
+
+
+@dataclass
 class RefStack:
     tower_app: Any
     control: Control
@@ -196,7 +243,11 @@ async def ref_stack(store: Store) -> AsyncIterator[RefStack]:
         serving(create_app(deps)) as app,
     ):
         control = Control(
-            mock=admin, grants=InProcessGrants(store, seed, clock), on_reset=on_reset, on_advance=on_advance
+            mock=admin,
+            grants=InProcessGrants(store, seed, clock),
+            settings=InProcessSettings(store, seed, clock),
+            on_reset=on_reset,
+            on_advance=on_advance,
         )
         yield RefStack(app, control, clock, seed, alerts)
     await carrier.aclose()

@@ -12,7 +12,8 @@ Order, and why:
    — except after a SIM swap of this line (the alert is a swap, or the line's own swap is within
    `ACK_DISTRUST`): then the line-holder's `backup_phone_enc` if registered, else nobody. No recipient whose
    phone *is* the watched line is ever texted in that state, whoever they are. Then the escalation chain
-   (`escalation.py`), from step 0.
+   (`escalation.py`), from step 0; on the line-holder's own chain each contact's grant is re-read and their
+   SMS uses their own alias (06 §11.2). The line-holder's copy above uses the Watch's alias (none for them).
 5. **Send** with one retry; a second failure → `ALERT_FAILED` row and the next recipient in the chain.
 """
 
@@ -71,6 +72,11 @@ class Recipient:
     @property
     def label(self) -> str:
         return f"{self.role}:{self.user_id}"
+
+    @property
+    def audience(self) -> str:
+        """The role a sent-SMS reader sees (06 §3.1): never the number."""
+        return {"chain": "watcher", "line_holder": "line-holder", "backup": "line-holder backup"}[self.role]
 
 
 def _decrypt(svc: AlertsService, enc: object) -> str | None:
@@ -134,12 +140,18 @@ async def send_one(
     now: datetime,
     trigger: Trigger,
     ref: str,
+    audience: str | None = None,
 ) -> bool:
-    """One SMS with one retry (06 §8). False → `ALERT_FAILED` has been audited."""
+    """One SMS with one retry (06 §8). False → `ALERT_FAILED` has been audited. A delivered SMS goes into the
+    local sent-SMS ledger when there is one, under `audience` (default: the recipient's role)."""
     for attempt in (1, 2):
         try:
             await svc.sender.send(r.e164, body, label=r.label)
             svc.count("sms_sent")
+            if svc.sent_log is not None:
+                svc.sent_log.record(
+                    at=now, template=ref, role=audience or r.audience, user_id=r.user_id, body=body
+                )
             return True
         except SendError:
             log.warning("send failed to=%s attempt=%d", r.label, attempt)
@@ -166,7 +178,7 @@ class DeliveryResult:
 
 async def deliver(svc: AlertsService, d: Decision) -> DeliveryResult:
     """Release the alert in `d` (a Decision with `notify`). Returns what happened; audits every branch."""
-    from alerts.escalation import start_chain
+    from alerts.escalation import ChainAlert, start_chain
 
     assert d.notify and d.facts is not None
     now = d.now
@@ -206,25 +218,23 @@ async def deliver(svc: AlertsService, d: Decision) -> DeliveryResult:
 
     line = get_line(svc.store, d.line_id)
     swapped = line_swapped_state(svc, codes, d.facts, now)
-    chain_users = [u for u, _ in d.escalation_steps] or [d.watcher_user_id]
-    if line is not None and line.owner_user_id not in chain_users:
+    steps = d.escalation_steps or ((d.watcher_user_id, False),)
+    if line is not None and line.owner_user_id not in {u for u, _ in steps}:
         holder = line_holder_recipient(svc, line, swapped)
         if holder is not None and await send_one(
             svc, holder, body, line_id=d.line_id, now=now, trigger=d.trigger, ref=ref
         ):
             result.labels.append(holder.label)
-    result.labels += await start_chain(
-        svc,
+    alert = ChainAlert(
         line_id=d.line_id,
         watcher_user_id=d.watcher_user_id,
-        steps=d.escalation_steps,
         codes=codes,
         facts=d.facts,
         alias=consent.alias,
         tz=d.tz,
-        now=now,
         trigger=d.trigger,
-        start=0,
         swapped=swapped,
+        owner_chain=consent.view.grant == "owner",
     )
+    result.labels += await start_chain(svc, alert, steps, now)
     return result

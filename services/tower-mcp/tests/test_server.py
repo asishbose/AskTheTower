@@ -75,7 +75,8 @@ async def test_user_header_is_the_identity(tower_app: Any, stack: Stack) -> None
     async with mcp_client(tower_app, user="user-mom") as client:
         res = await client.call_tool("line_is_ok", {"line": "mom"})
     RESULTS.append(res.structured_content)
-    assert res.structured_content["reason_codes"] == ["NOT_BOUND"]  # Mom has no alias "mom" for herself
+    # "mom" is not a grant alias for this user → NO_CONSENT (04 §5; Asish holds that alias and would get OK)
+    assert res.structured_content["reason_codes"] == ["NO_CONSENT"]
 
 
 async def test_internal_error_is_bare(tower_app: Any, stack: Stack) -> None:

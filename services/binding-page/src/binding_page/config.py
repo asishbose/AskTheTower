@@ -8,6 +8,7 @@
 | `SESSION_SECRET` | — (required) | HMAC key for the OAuth `state`, the flow cookie, the session cookie and CSRF tokens |
 | `SESSION_TTL_S` | `1800` | page session lifetime |
 | `BIND_ADMIN` | off | `1` serves `/_admin/*` (only when `TOWER_ENV=local`) |
+| `ALERTS_INTERNAL_URL` / `ALERTS_INTERNAL_BEARER` | — | Alerts' `POST /internal/watch`, called after a watch-settings save on an enabled Watch (04 §9.2); unset → log-only stub |
 | `CARRIER_*` | see `camara_client.config` | `CARRIER_CLIENT_ID` defaults to `binding-page`, `CARRIER_SCOPES` to `number-verification`, `CARRIER_PROFILE` to `proactive` |
 | `TOWER_DYNAMODB_ENDPOINT` (alias `DYNAMO_ENDPOINT`), `TOWER_TABLE_PREFIX`, `AWS_REGION` | see `tower_consent.Store.from_env` | the store |
 | `TOWER_LINE_ID_KEY`, `TOWER_MSISDN_KEY` / `TOWER_KMS_*` | see `tower_consent.crypto_from_env` | HMAC + encryption |
@@ -41,6 +42,8 @@ class Settings:
     session_ttl_s: int = 1800
     admin: bool = False
     port: int = 8081
+    alerts_internal_url: str | None = None
+    alerts_internal_bearer: str | None = None
 
     def __post_init__(self) -> None:
         if len(self.session_secret) < 16:
@@ -73,6 +76,8 @@ class Settings:
             session_ttl_s=int(e.get("SESSION_TTL_S", "1800")),
             admin=_flag(e.get("BIND_ADMIN")),
             port=int(e.get("PORT", "8081")),
+            alerts_internal_url=e.get("ALERTS_INTERNAL_URL") or None,
+            alerts_internal_bearer=e.get("ALERTS_INTERNAL_BEARER") or None,
         )
 
 

@@ -39,11 +39,15 @@ from tower_consent.models import (
 from tower_consent.resolve import ResolvedConsent, resolve
 from tower_consent.store import Store
 from tower_consent.users import ensure_user, get_user, set_alert_phone
+from tower_consent.watch_settings import MAX_CONTACTS, set_watch_settings
 from tower_consent.watches import (
+    chain_of,
+    delete_watch,
     disable_watch,
     get_watch,
     list_watches_by_profile,
     list_watches_for_line,
+    remove_contact,
     update_last_state,
     upsert_watch,
 )
@@ -61,16 +65,19 @@ __all__ = [
     "LineIdHasher",
     "LocalLineIdHasher",
     "LocalMsisdnCipher",
+    "MAX_CONTACTS",
     "MsisdnCipher",
     "ResolvedConsent",
     "Store",
     "User",
     "Watch",
     "bind_line",
+    "chain_of",
     "consume_bind_token",
     "create_bind_token",
     "crypto",
     "crypto_from_env",
+    "delete_watch",
     "disable_watch",
     "ensure_user",
     "errors",
@@ -84,9 +91,11 @@ __all__ = [
     "list_lines",
     "list_watches_by_profile",
     "list_watches_for_line",
+    "remove_contact",
     "resolve",
     "revoke",
     "set_alert_phone",
+    "set_watch_settings",
     "tables",
     "update_last_state",
     "upsert_watch",

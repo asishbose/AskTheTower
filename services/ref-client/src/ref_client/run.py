@@ -108,9 +108,10 @@ async def _demo(args: argparse.Namespace) -> int:
 
         control = http_control()
         stack.push_async_callback(control.mock.aclose)
-        close = getattr(control.grants, "aclose", None)
-        if close is not None:
-            stack.push_async_callback(close)
+        for admin in (control.grants, control.settings):
+            close = getattr(admin, "aclose", None)
+            if close is not None:
+                stack.push_async_callback(close)
 
         def echo(line: str) -> None:
             print(line, flush=True)

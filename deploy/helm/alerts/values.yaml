@@ -79,9 +79,9 @@ cronJobs:
 
 networkPolicy:
   enabled: true
-  from:            # :8082 — /internal/watch from Tower; on EKS also the ALB (VPC CIDR) for /hooks
+  from:            # :8082 — /internal/watch from Tower and the binding page (04 §9.2); on EKS also the ALB (VPC CIDR) for /hooks
     allowAll: false
-    names: [tower-mcp]
+    names: [tower-mcp, binding-page, demo-ui]   # demo-ui: GET /internal/sent, kind only (doc 11 G3)
     cidrs: []
   hooksFrom:       # :8443 (tls sidecar) — the mock carrier's webhook sender
     allowAll: false

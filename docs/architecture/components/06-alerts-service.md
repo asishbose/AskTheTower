@@ -41,9 +41,14 @@ for recipient in watch.escalation:       # ordered: [watcher, then e.g. neighbou
 ```
 
 - The **line-holder is always told too** (SMS to `Users.alert_phone_e164`, which defaults to the bound line) — except on a SIM swap, where that number may now be the attacker's. Then the line-holder is told via the backup phone they registered, if any, and otherwise only the watcher is told. This is the one case where the system deliberately does not text the line it's about.
+- On the **line-holder's own** Watch, every step that is not the line-holder is a contact: their `watch` grant is re-read just before their text (skipped `SUPPRESSED_REVOKED` if gone, next step at once), and their SMS names the line by their own grant alias (§11.2). A parked chain carries a snapshot of the steps still to go (§11.3).
 - Acknowledgement is a reply to the SMS ("OK") or a tap on a link. No ack path → treated as not acked.
 - **A reply or cancel from a line that was SIM-swapped in the last 24 h is ignored and audited as `ACK_IGNORED_SWAPPED_LINE`** — it may be the attacker holding the number. Escalation continues as if unacknowledged, and the watcher's next message says the reply was ignored (the one sentence not from 03 §4 — `ACK_IGNORED_SWAPPED_LINE` is audit-only there — lives in `services/alerts/src/alerts/templates.py`). The 24 h window is `ACK_DISTRUST` in `thresholds.yaml`.
 - Messages never contain a phone number, a location, or a health word. Templates are the same ones Tower uses (03 §4), in their SMS-length form.
+
+### 3.1 Sent SMS, locally (`GET /internal/sent`; doc 11 G3)
+
+With `ALERTS_MODE=local` (compose, kind) the service keeps an in-memory ledger of the SMS it delivered (`alerts/sent_log.py`, last 200) and serves it at `GET /internal/sent?after=<n>`, behind the internal bearer (`INTERNAL_BEARER`). In `lambda` and `k8s` mode the route does not exist. Each entry is `{n, at, template, role, user_id, body}`: `n` counts from 1 so a reader asks only for what is new; `at` is the (mock) time of the send; `template` is the `message_ref`; `role` is `watcher` (a grantee's own Watch), `line-holder` or `line-holder backup` (the copy of §3), or `escalation[n]` (step *n* of the line-holder's chain, §11.2), with ` backup` added when a step's backup phone was used; `body` is the rendered text. The number is not a field and cannot be returned. The demo UI's live feed reads it.
 
 ## 4. Re-resolve before sending
 
@@ -90,12 +95,13 @@ The rule again: a failure to observe is never reported as a change.
 - SIM-swap alert does not text the swapped line.
 - Rate limit: second identical change within 6 h is audited, not sent.
 - Webhook with unknown token → 200, no state change.
+- Sent-SMS ledger (§3.1): a grantee's alert is `watcher`; the transplant chain is `line-holder`, `escalation[0]`, `escalation[1]`; `after=<n>` returns only newer entries; the route needs the bearer and is absent outside local mode; no entry contains a number (`tests/test_sent_endpoint.py`).
 
 ## 10. Showcase on its own
 
-`make showcase-alerts`, with the mock carrier and a real phone number registered as the watcher: enable a watch, fire `POST /_admin/lines/<Mom's number>/events {type: sim_swap}` on the mock, and the phone buzzes within seconds — on camera. Then revoke the grant on the binding page, fire again, and show the audit line `SUPPRESSED_REVOKED` instead of a text. Finally the escalation: with the `transplant` profile, advance the mock clock 20 min dark, see the first text; don't acknowledge; advance 15 min; the second contact is texted. See `testing-and-showcase.md` §2.6.
+`make showcase-alerts`, with the mock carrier and a real phone number registered as the watcher: enable a watch, fire `POST /_admin/lines/<Mom's number>/events {type: sim_swap}` on the mock, and the phone buzzes within seconds — on camera. Then revoke the grant on the binding page, fire again, and show the audit line `SUPPRESSED_REVOKED` instead of a text. Finally the escalation, on the product shape: Asish's own Watch saved as `transplant` with contacts `[partner, neighbour]` (`set_watch_settings`, 04 §9), alerts on; advance the mock clock 20 min dark, see the first text; don't acknowledge; advance 15 min; the second contact is texted. See `testing-and-showcase.md` §2.6.
 
-## 11. The line-holder's profile and contacts (resolves D8, D9; specified, not yet built)
+## 11. The line-holder's profile and contacts (resolves D8, D9; built 2026-10-09)
 
 The line-holder sets the profile and an ordered list of contacts on the binding page (04 §9). Both are stored on their own Watch: `Watches{line_id, watcher_user_id = owner}.profile` and `.escalation[]`. This section covers what Tower and Alerts do with them. The rule from 03 §5 is unchanged: the policy says *whether*, and the Watch says *to whom*.
 
@@ -119,7 +125,7 @@ Cost: none on the hot path. `watch_line` already does one resolve and one Watch 
 
 ### 11.2 Sending down the line-holder's chain
 
-`deliver()` and `start_chain()` (§3) run as built, plus these rules:
+`deliver()` and `start_chain()` (§3) run as built, plus these rules. Rules 1–2 apply to a Watch whose watcher **is the line-holder** (`ChainAlert.owner_chain` in `escalation.py`); a grantee's own Watch keeps §3 as it was (its watcher was re-resolved already, §4).
 
 1. **Per-step consent.** Immediately before texting a chain step whose `user_id` is not the line-holder, Alerts re-reads that user's grant on the line (one `Grants` query; Alerts only, not the hot path). If there is no active `watch` grant, the step is skipped and audited `suppressed · SUPPRESSED_REVOKED` (`tool=alert`). The **next step is tried at once**, with no 15-minute wait for a step that can't be texted. This applies on the first send and in `tick`.
 2. **Per-recipient name.** Each contact's SMS is rendered with **that contact's own grant alias** (the one the line-holder chose when granting: "asish's phone has been off the network since…"). The line-holder's own copy uses no alias ("Your phone…"). This is the D15 fix, limited to the chain. The alias comes from the grant read in rule 1, so it costs no extra read.
@@ -128,7 +134,7 @@ Cost: none on the hot path. `watch_line` already does one resolve and one Watch 
 
 ### 11.3 Escalation, ack, rate limit, revoke
 
-- **Snapshot when parked.** The parked escalation (`AlertsState esc#…`) gains `remaining: [{user_id, requires_ack}]`, the steps after the one just texted. `tick` walks `remaining`, not the live `watch.escalation[step+1:]`. A settings change or a contact removal therefore cannot shift indexes under an alert already in flight. Each step is still re-checked by rule 11.2.1 before its send. A row without `remaining` (in flight across a deploy) falls back to today's behaviour.
+- **Snapshot when parked.** The parked escalation (`AlertsState esc#…`) gains `remaining: [{user_id, requires_ack}]`, the steps after the one just texted. `tick` walks `remaining`, not the live `watch.escalation[step+1:]`. *As built,* the tick writes its `changed` row just before the first text it actually sends, so a tick whose remaining steps were all revoked writes only `SUPPRESSED_REVOKED` and clears the chain. A settings change or a contact removal therefore cannot shift indexes under an alert already in flight. Each step is still re-checked by rule 11.2.1 before its send. A row without `remaining` (in flight across a deploy) falls back to today's behaviour.
 - **Ack.** Today's paths, no change:
   - "OK" or "CANCEL" from the texted contact's phone (the ack route saved at park) → accepted, chain cleared, later steps never texted.
   - A reply from the watched line itself → accepted, unless that line had a SIM swap within 24 h. Then it is ignored and audited `ACK_IGNORED_SWAPPED_LINE`, and the chain continues.
@@ -152,7 +158,7 @@ The `Note` lines drop "(make showcase-alerts)": the SMS log now shows `to=chain:
 
 **Golden.** `tests/e2e/golden/transplant.json` keeps the same three utterances, tool calls and reason codes: `watch_line{self,true}` → `OK`, `is_reachable{self}` → `UNREACHABLE`, then `OK`. Only its narrative `control` entries change: one is added for the settings step. The comparator ignores controls. The SMS is asserted by the e2e test (acceptance criterion 24), not by the golden.
 
-`make showcase-alerts` may keep seeding a partner-owned Watch. It should move to the owner-Watch shape so that it proves the product path.
+`make showcase-alerts` now uses the owner-Watch shape (built 2026-10-09): both contacts hold `watch` grants, the settings are saved with `set_watch_settings`, and each contact's text names the line "asish's phone…".
 
 ### 11.5 Acceptance criteria
 

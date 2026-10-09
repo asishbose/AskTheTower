@@ -41,6 +41,18 @@ lines:
     reachable: true
     connectivity: DATA
     mobile_data_client_ids: [phone-mom]
+  "+16135550103":                # Asish's partner — first contact in the transplant story (06 §11.4)
+    sim_change_at: "2026-07-20T16:00:00Z"
+    call_forwarding: none
+    reachable: true
+    connectivity: DATA
+    mobile_data_client_ids: [phone-partner]
+  "+16135550104":                # the neighbour — second contact in the transplant story
+    sim_change_at: "2026-06-03T11:15:00Z"
+    call_forwarding: none
+    reachable: true
+    connectivity: DATA
+    mobile_data_client_ids: [phone-neighbour]
 timeline:                        # optional scripted events, relative to clock
   - at: "+00:12:00"
     line: "+16135550101"
@@ -56,13 +68,18 @@ timeline:                        # optional scripted events, relative to clock
 
 ## 3. Admin API (not part of CAMARA, clearly namespaced)
 
-| Endpoint | Purpose |
-|---|---|
-| `POST /_admin/scenarios/load {name}` | reset state to a scenario |
-| `POST /_admin/lines/{msisdn}/events {event}` | `sim_swap`, `cf_set`, `cf_clear`, `reachable`, `unreachable` — fires subscriptions |
-| `POST /_admin/clock` | set or advance |
-| `GET /_admin/state` | dump (test use; disabled unless `MOCK_ADMIN=1`) |
-| `POST /_admin/faults {kind, n}` | inject `timeout`, `500`, `429` for the next *n* calls — for the error-mapping and circuit-breaker tests |
+The whole `/_admin` surface is mounted only when `MOCK_ADMIN=1`.
+
+| Endpoint | Purpose | Token (G1) |
+|---|---|---|
+| `POST /_admin/scenarios/load {name}` | reset state to a scenario | yes |
+| `POST /_admin/lines/{line}/events {event}` | `sim_swap`, `cf_set`, `cf_clear`, `reachable`, `unreachable` — fires subscriptions. `{line}` is the E.164 or the line's opaque `ref` (`line:<16 hex>`); a `ref` request gets a reply without `msisdn` | yes |
+| `POST /_admin/clock` · `GET /_admin/clock` | set or advance · read (Tower's `TOWER_CLOCK_URL`, Alerts' mock clock) | POST yes · GET no |
+| `GET /_admin/state` · `GET /_admin/state?view=refs` | full dump (tests) · the same without a number: lines keyed by `ref` with no `msisdn`, subscriptions without `sink`, no deliveries, no sink inbox (the demo tools read this one) | no |
+| `POST /_admin/faults {kind, n}` · `DELETE /_admin/faults` | inject `timeout`, `500`, `429` for the next *n* calls — for the error-mapping and circuit-breaker tests · clear them | yes |
+| `GET /_admin/scenarios` · `GET /_admin/sink` | list scenario files · the loopback sink's CloudEvents | no |
+
+**Admin token (G1, doc 11 §10).** With `MOCK_ADMIN_TOKEN` set, every POST and DELETE above needs `Authorization: Bearer <token>` (401 otherwise); the reads stay open because Tower and Alerts read the clock. Compose generates the token (`deploy/compose/.env`) and publishes the mock on `127.0.0.1` only; the seed, `make demo` (`ref_client.demo.Control`), the e2e helpers, the showcase scripts and the demo UI send it. Unset, the routes are open: the in-process tests, kind and the Fargate task, where the network keeps `/_admin` private (ClusterIP + NetworkPolicy; internal ALB that never forwards `/_admin`).
 
 **Simulated mobile-data attribution.** Real Number Verification works because the carrier sees the device on its own network. The mock simulates this with a header `X-Mock-Client-Id`: the binding page, when opened by a test "phone", sends `phone-asish`; a request without a matching id gets 403 `NUMBER_VERIFICATION.USER_NOT_AUTHENTICATED_BY_MOBILE_NETWORK` (the Fall25 code; it was 422 `UNIDENTIFIABLE_DEVICE` in Commonalities 0.4). This makes the "Wi-Fi off, one tap" story testable without a real network, and it is documented on the slide as a simulation.
 
@@ -84,6 +101,7 @@ timeline:                        # optional scripted events, relative to clock
 - **Subscriptions:** create, fire an admin event, assert a CloudEvent at the sink with the right type and `subscriptionId`.
 - **Attribution:** `verify` without the client id → 403 `NUMBER_VERIFICATION.USER_NOT_AUTHENTICATED_BY_MOBILE_NETWORK`; with the wrong id → the same; with the right id → verified.
 - **Faults:** `faults {timeout, 1}` → next call hangs > 400 ms; the Tower-side test asserts `STALE_DATA`.
+- **Admin token and refs (G1, G2):** with `MOCK_ADMIN_TOKEN` set, every mutating route is 401 without it or with a wrong one and 200 with it; the reads answer without it; `?view=refs` and an event fired by `ref` contain no E.164 (`tests/test_admin_token_refs.py`).
 
 ## 7. Showcase on its own
 

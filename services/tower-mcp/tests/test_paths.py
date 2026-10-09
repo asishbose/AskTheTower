@@ -10,7 +10,7 @@ from tower_audit.reader import query_rows
 from tower_consent import LastState, revoke
 from tower_mcp.seed import seed_watch
 
-from .conftest import BINDING, MOCK_START, SUPPORT, Stack
+from .conftest import MOCK_START, SUPPORT, Stack
 
 pytestmark = pytest.mark.integration
 
@@ -100,13 +100,13 @@ async def test_grantee_alias_sees_moms_line(stack: Stack) -> None:
     assert [x.actor_user_id for x in rows] == ["user-asish", "user-asish"]
 
 
-async def test_unbound_alias_is_not_bound_with_binding_url(stack: Stack) -> None:
+async def test_unknown_alias_is_no_consent_without_a_binding_url(stack: Stack) -> None:
+    """04 §5 / D18: an alias the caller holds no grant for is NO_CONSENT — no bind link for their own line."""
     before = await stack.calls()
     r = await stack.line_is_ok("user-asish", "bob")
-    assert r.reason_codes == ["NOT_BOUND"]
-    assert r.summary == "I need to connect your line first — I'll send you a link."
-    assert r.next_step.kind == "bind_line"
-    assert r.next_step.url.startswith(f"{BINDING}/bind/")
+    assert r.reason_codes == ["NO_CONSENT"]
+    assert r.summary == "Bob hasn't shared that with you."
+    assert r.next_step.kind == "ask_consent" and r.next_step.url is None
     assert r.facts.model_dump(exclude_none=True, exclude_defaults=True) == {"line": "bob"}
     assert await stack.calls() == before
 
@@ -136,7 +136,7 @@ async def test_revoked_alias_is_no_consent(stack: Stack) -> None:
 
 async def test_number_shaped_line_is_not_echoed(stack: Stack) -> None:
     r = await stack.line_is_ok("user-asish", ASISH)
-    assert r.reason_codes == ["NOT_BOUND"]
+    assert r.reason_codes == ["NO_CONSENT"]  # D18: not the caller's own line, so not NOT_BOUND
     assert r.facts.line == "unknown"
     assert ASISH[1:] not in r.model_dump_json()
 

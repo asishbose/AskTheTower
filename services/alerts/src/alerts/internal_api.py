@@ -5,6 +5,9 @@
   baseline observation (trigger `poll`). `enable=false`: when no enabled Watch remains on the line,
   unsubscribe and drop its sink token; otherwise re-subscribe to what the remaining Watches need.
   If the Watch doesn't exist and both `profile` and `watcher_user_id` are given, it is created.
+- `GET /internal/sent?after=<n>` — local mode only (`ALERTS_MODE=local`; the route does not exist otherwise):
+  the SMS this process sent, from the in-memory ledger (`sent_log.py`): `{n, at, template, role, user_id, body}`,
+  never a number. The demo UI's live feed reads it (doc 11 §4, G3).
 - `POST /inbound/sms {from, body}` — an SMS reply relayed by the local SMS gateway (on AWS the SNS inbound
   topic invokes `handler.py` instead). The number is hashed at once (`escalation.handle_reply`).
 """
@@ -14,7 +17,7 @@ from __future__ import annotations
 import hmac
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from tower_consent import Watch, get_watch, upsert_watch
 from tower_consent.crypto import is_line_id
@@ -89,6 +92,13 @@ def router(svc: AlertsService) -> APIRouter:
     @r.post("/internal/watch")
     async def watch(req: WatchRequest) -> dict[str, Any]:
         return await set_watch(svc, req)
+
+    if svc.settings.mode == "local" and svc.sent_log is not None:
+        log_ = svc.sent_log
+
+        @r.get("/internal/sent")
+        async def sent(after: int = Query(default=0, ge=0)) -> dict[str, Any]:
+            return {"sent": [e.dump() for e in log_.after(after)]}
 
     @r.post("/inbound/sms")
     async def inbound(msg: InboundSms) -> dict[str, Any]:

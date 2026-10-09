@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `make helm-kind` — the no-cloud check of the Helm charts (prompt 14 step 2; 10 §6):
-#   kind cluster → build + `kind load` the five images (and caddy, dynamodb-local) → helm install the umbrella with
+#   kind cluster → build + `kind load` the six images (five services + demo-ui) (and caddy, dynamodb-local) → helm install the umbrella with
 #   values-kind.yaml (the seed runs as a post-install hook) → port-forward → `ref-client demo` on the host →
 #   transcripts compared with the golden files → artifacts/helm-kind.txt.
 #
@@ -16,7 +16,7 @@ NS=${NAMESPACE:-ask-the-tower}
 RELEASE=${RELEASE:-att}
 TAG=${IMAGE_TAG:-kind}
 PF_BASE=${PF_BASE:-18000}
-SERVICES=(mock-carrier tower-mcp binding-page alerts ref-client)
+SERVICES=(mock-carrier tower-mcp binding-page alerts ref-client demo-ui)  # demo-ui: kind only, never pushed (doc 11)
 EXTRA_IMAGES=(caddy:2.10-alpine amazon/dynamodb-local:2.5.2)
 OUT=artifacts/transcripts-kind
 REPORT=artifacts/helm-kind.txt

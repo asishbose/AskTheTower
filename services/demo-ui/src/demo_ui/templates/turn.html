@@ -1,0 +1,19 @@
+<article class="step step-{{ r.kind }}{% if r.replay %} replay{% endif %}{% if r.ok is false %} bad{% endif %}" id="step-{{ r.step_id | replace('#', '-') }}">
+  <header>
+    <span class="sid">{{ r.step_id }}</span>{% if r.replay %} <span class="tag">replay</span>{% endif %}
+    {% if r.kind == "say" %}<span class="badge {{ 'pass' if r.ok else 'fail' }}">{{ 'pass' if r.ok else 'FAIL' }}</span>{% endif %}
+    <span class="ms">{{ r.elapsed_ms }} ms</span>
+  </header>
+  {% if r.kind == "say" %}
+  <p class="you">“{{ r.narration }}”</p>
+  {% if turn %}
+  <p class="calls">→ {{ turn.calls | join(", ") or "no tool" }}</p>
+  <p class="chips">{% for c in turn.codes %}<span class="chip">{{ c }}</span>{% endfor %}
+    {% if not r.ok %}<span class="expected">expected {% for c in r.expected %}<span class="chip">{{ c }}</span>{% endfor %}</span>{% endif %}</p>
+  <p class="spoken">{{ agent }}: {{ turn.spoken }}</p>
+  {% if turn.next_step %}<p class="next">next_step: {{ turn.next_step }}</p>{% endif %}
+  {% endif %}
+  {% else %}
+  <p class="narration">[{{ r.kind }}] {{ r.narration }}</p>
+  {% endif %}
+</article>

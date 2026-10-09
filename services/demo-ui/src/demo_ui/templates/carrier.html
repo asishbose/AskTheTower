@@ -1,0 +1,7 @@
+<p class="clock">mock clock <b>{{ clock }}</b>{% if faults %} · pending faults: {{ faults | join(", ") }}{% endif %}</p>
+<table><thead><tr><th>holder</th><th>ref</th><th>SIM change</th><th>forwarding</th><th>reachable</th><th>connectivity</th></tr></thead>
+<tbody>{% for l in lines %}<tr><td>{{ l.holder }}</td><td class="ref">{{ l.ref }}</td><td>{{ l.sim_change_at }}</td><td>{{ l.call_forwarding }}</td><td>{{ l.reachable }}</td><td>{{ l.connectivity }}</td></tr>{% endfor %}</tbody></table>
+{% if subscriptions %}
+<table><thead><tr><th>subscription</th><th>api</th><th>line</th><th>status</th><th>events</th></tr></thead>
+<tbody>{% for s in subscriptions %}<tr><td>{{ s.id }}</td><td>{{ s.api }}</td><td class="ref">{{ s.line }}</td><td>{{ s.status }}</td><td>{{ s.events }}</td></tr>{% endfor %}</tbody></table>
+{% else %}<p class="muted">no subscriptions</p>{% endif %}

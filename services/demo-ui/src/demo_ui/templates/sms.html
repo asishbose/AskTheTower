@@ -1,0 +1,3 @@
+{% if entries %}
+<ul class="sms">{% for e in entries %}<li><span class="ts">{{ e.at }}</span> <b>{{ e.role }}</b> {{ e.user_id }} <span class="tpl">{{ e.template }}</span><br>{{ e.body }}</li>{% endfor %}</ul>
+{% else %}<p class="muted">no SMS sent yet</p>{% endif %}

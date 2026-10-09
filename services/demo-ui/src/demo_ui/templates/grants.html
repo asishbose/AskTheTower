@@ -1,0 +1,3 @@
+<table><thead><tr><th>owner line</th><th>grantee</th><th>kind</th><th>alias</th><th>revoked</th></tr></thead>
+<tbody>{% for g in grants %}<tr{% if g.revoked_at %} class="revoked"{% endif %}><td class="ref">{{ g.line }}</td><td>{{ g.grantee }}</td><td>{{ g.grant }}</td><td>{{ g.alias }}</td><td>{{ g.revoked_at or "" }}</td></tr>{% endfor %}</tbody></table>
+<p>resolve(user-asish, "mom") → bound={{ resolve.bound }}, grant=<b>{{ resolve.grant }}</b></p>

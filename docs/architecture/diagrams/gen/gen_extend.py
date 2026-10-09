@@ -8,7 +8,7 @@ Re-running replaces the block, so the output is idempotent. The cells come from 
 
 - 03 gets the ack and revoke branches (06 §3-§4): reply accepted, ACK_IGNORED_SWAPPED_LINE, tick to escalation[1],
   revoke then SUPPRESSED_REVOKED.
-- 04 gets the invite code, grant, watch and revoke steps (04 §3).
+- 04 gets the invite code, grant, watch-settings (04 §9: the page → Alerts edge), watch and revoke steps (04 §3).
 
     uv run python docs/architecture/diagrams/gen/gen_extend.py            # write both + check
     uv run python docs/architecture/diagrams/gen/gen_extend.py --check    # fail if a file is stale
@@ -98,8 +98,8 @@ def ext03() -> tuple[Page, int]:
 def ext04() -> tuple[Page, int]:
     p = Page("x04", "x", 1600, 0)
     top = 920
-    p.zone("x_zone", 28, top, 1544, 330, "Invite, grant, watch and revoke, as built (04 §3) — added by gen_extend.py", "grey", size=13)  # fmt: skip
-    r1, r2, r3 = top + 40, top + 140, top + 240
+    p.zone("x_zone", 28, top, 1544, 430, "Invite, grant, watch settings, watch and revoke, as built (04 §3, §9) — added by gen_extend.py", "grey", size=13)  # fmt: skip
+    r1, r2, r3, r4 = top + 40, top + 140, top + 240, top + 340
     h = 82
     p.box("x_inv", XS[0], r1, COL_W, h, "Asish (grantee) on his own page", [
         "/me → “Create invite code” → POST /me/invite (grants.py:87): 8 letters shown ABCD-EFGH, 24 h, single use (invite.py:40)",
@@ -111,29 +111,44 @@ def ext04() -> tuple[Page, int]:
         "session from her own bind; POST /grants {invite_code, watch | reachability, alias \"mom\"} → grant() (grants.py:111; tower_consent grants.py:38); invite consumed",
     ], "grey", size=10)  # fmt: skip
     p.box("x_watch", XS[3], r1, COL_W, h, "Asish: “Alexa, watch mom's line”", [
-        "watch_line(\"mom\", enable=true) → Watch (care) + Alerts /internal/watch → subscribe. The page creates no Watch (D7)",
+        "watch_line(\"mom\", enable=true) → his own Watch (care) + Alerts /internal/watch → subscribe. The page creates no Watch (D7, grant half open)",
     ], "teal", size=10)  # fmt: skip
     right(p, "x_inv", "x_pass", "x_e1")
     right(p, "x_pass", "x_grant", "x_e2")
     right(p, "x_grant", "x_watch", "x_e3")
-    p.box("x_rev", XS[0], r2, COL_W, h, "Mom revokes — on the page only", [
-        "POST /grants/{id}/revoke (grants.py:142) → revoked_at (tower_consent grants.py:89); never by voice (04 §3)",
+    p.box("x_set", XS[0], r2, COL_W, h, "Mom: Watching card on /me (6b)", [
+        "profile by behaviour (fraud only / must stay reachable / daytime check-in) + up to 3 contacts in order, from her line's active watch grantees",
     ], "grey", size=10)  # fmt: skip
-    p.box("x_after", XS[1], r2, COL_W, h, "Next read sees it", [
-        "Asish's line_is_ok(\"mom\") → NO_CONSENT (resolve.py:84); Alerts drops any alert as SUPPRESSED_REVOKED",
+    p.box("x_save", XS[1], r2, COL_W, h, "POST /me/lines/{line_id}/watch-settings", [
+        "set_watch_settings (watch_settings.py:26): owner only (403); contacts need an active watch grant (422); one UpdateItem on her own Watch, requires_ack derived; enabled untouched",
     ], "white", size=10)  # fmt: skip
-    p.box("x_left", XS[2], r2, COL_W * 2 + COL_GAP, h, "Not done on revoke (D7)", [
-        "the Watch stays enabled and the carrier subscriptions stay live: kinds_for_line counts it (subscriptions.py:48) and the",
-        "watchdog keeps renewing them. Nothing is texted, but Tower keeps subscribing to Mom's line events after she said no.",
-    ], "exit", size=10)  # fmt: skip
+    p.box("x_saud", XS[2], r2, COL_W, h, "Audit, then Alerts if alerts are on", [
+        "one row watch_line · binding · ok, no contact ids; enabled Watch → POST /internal/watch {profile} (watching.py; a failure is swallowed, the polls cover it)",
+    ], "white", size=10)  # fmt: skip
+    p.box("x_mine", XS[3], r2, COL_W, h, "Mom: “Alexa, watch my line”", [
+        "watch_line(self, true) keeps the stored profile and chain (watch_line.py:121); facts.profile reports it, contacts never (06 §11.1)",
+    ], "teal", size=10)  # fmt: skip
+    right(p, "x_set", "x_save", "x_e6")
+    right(p, "x_save", "x_saud", "x_e7")
+    right(p, "x_saud", "x_mine", "x_e8")
+    p.box("x_rev", XS[0], r3, COL_W, h, "Mom revokes — on the page only", [
+        "POST /grants/{id}/revoke (grants.py:144) → revoked_at (tower_consent grants.py); never by voice (04 §3)",
+    ], "grey", size=10)  # fmt: skip
+    p.box("x_after", XS[1], r3, COL_W, h, "Next read sees it", [
+        "Asish's line_is_ok(\"mom\") → NO_CONSENT (resolve.py:89); Alerts drops any alert as SUPPRESSED_REVOKED",
+    ], "white", size=10)  # fmt: skip
+    p.box("x_left", XS[2], r3, COL_W * 2 + COL_GAP, h, "Also on revoke (D7, D8)", [
+        "the grantee's Watch is disabled (watches.py disable_watch) and they leave Mom's contact chain (watches.py:83 remove_contact);",
+        "the Alerts watchdog drops subscriptions no enabled, consented Watch needs on its next poll. The page never calls Alerts on revoke.",
+    ], "teal", size=10)  # fmt: skip
     right(p, "x_rev", "x_after", "x_e4")
-    right(p, "x_after", "x_left", "x_e5", "", "refuse")
-    p.box("x_note", 60, r3, 1480, 70, "", [
+    right(p, "x_after", "x_left", "x_e5")
+    p.box("x_note", 60, r4, 1480, 70, "", [
         "Also as built: no code sends the link SMS (step “SMS with link”, D1); Alexa+ gets the URL in next_step only.",
         "The bind calls Number Verification phoneNumberShare — the carrier returns devicePhoneNumber (core.py:240) — not verify(number) as drawn above (D12).",
         "The step label “grant watch to <invite code> as mom” renders without its placeholder: the tag is read as HTML (D13).",
     ], "ghost", dashed=True, size=10, body_size=10)  # fmt: skip
-    return p, top + 330 + 30
+    return p, top + 430 + 30
 
 
 def apply(path: Path, make: object) -> str:

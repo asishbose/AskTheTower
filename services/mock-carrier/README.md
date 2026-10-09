@@ -36,7 +36,7 @@ patches only (server URL and OIDC discovery URL — see `specs/camara/README.md`
 | Device Reachability Status | `POST /device-reachability-status/v1/retrieve` → `{reachable, connectivity, lastStatusTime}` |
 | Reachability Subscriptions | `POST/GET /device-reachability-status-subscriptions/v0.8/subscriptions`, `GET/DELETE …/{id}` |
 | OAuth 2 | `POST /oauth2/token` (client credentials, auth code, CIBA), `GET /oauth2/authorize`, `POST /oauth2/bc-authorize` (only with `MOCK_CIBA=1`), `GET /oauth2/.well-known/openid-configuration` |
-| Admin (simulation aid) | `/_admin/scenarios/load`, `/_admin/clock`, `/_admin/lines/{msisdn}/events`, `/_admin/faults`, `/_admin/state`, `/_admin/sink` — only with `MOCK_ADMIN=1` |
+| Admin (simulation aid) | `/_admin/scenarios/load`, `/_admin/clock`, `/_admin/lines/{msisdn or ref}/events`, `/_admin/faults`, `/_admin/state[?view=refs]`, `/_admin/sink` — only with `MOCK_ADMIN=1`; POST/DELETE need `MOCK_ADMIN_TOKEN` when it is set (08 §3) |
 
 Every non-2xx is the CAMARA envelope `{status, code, message}`; `x-correlator` is echoed.
 Identifier rules follow the specs: two-legged token → `phoneNumber`/`device` required (else 422
@@ -87,6 +87,7 @@ scenario whose `clock` is `now`). The same scenario and admin calls give the sam
 | Variable | Default | Meaning |
 |---|---|---|
 | `MOCK_ADMIN` | off | `1` mounts `/_admin/*` (simulation aid) |
+| `MOCK_ADMIN_TOKEN` | — | when set, `/_admin`'s POST/DELETE routes need `Authorization: Bearer <token>` (GETs stay open: Tower and Alerts read the clock). Compose generates it |
 | `MOCK_CIBA` | off | `1` enables `/oauth2/bc-authorize` and the CIBA grant (auto-approved) |
 | `MOCK_JITTER_MS` | `0` | uniform random delay 0..N ms per CAMARA call (the only randomness) |
 | `MOCK_PORT` | `8443` | listen port |

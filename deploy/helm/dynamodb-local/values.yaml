@@ -21,7 +21,7 @@ networkPolicy:
   enabled: true
   from:
     allowAll: false
-    names: [tower-mcp, binding-page, alerts, alerts-job, seed]
+    names: [tower-mcp, binding-page, alerts, alerts-job, seed, demo-ui]   # demo-ui reads the audit (kind only)
     cidrs: []
 
 resources:

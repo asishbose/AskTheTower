@@ -25,6 +25,10 @@ dependencies:
     version: 0.1.0
     repository: file://../ref-client
     condition: ref-client.enabled
+  - name: demo-ui              # laptop tooling: kind only (values-kind.yaml); off in values.yaml and values-eks.yaml
+    version: 0.1.0
+    repository: file://../demo-ui
+    condition: demo-ui.enabled
   - name: dynamodb-local
     version: 0.1.0
     repository: file://../dynamodb-local

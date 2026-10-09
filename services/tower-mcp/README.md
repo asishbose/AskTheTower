@@ -6,7 +6,7 @@ The Tower MCP server — the thing Alexa+ connects to. Three tools over MCP Stre
 |---|---|---|
 | `line_is_ok(line="self")` | SIM swapped recently? Call forwarding set? | SIM Swap check (72 h) + Call Forwarding, in parallel, 300 ms each — or none, when a fresh Watch state (≤ 10 min) exists |
 | `is_reachable(line="self")` | Is the line attached to the network? | one Device Reachability Status call |
-| `watch_line(line="self", enable=true\|false\|null)` | Alerts on/off (writes the Watch, tells the Alerts service), or with `null` a status: watching, grants, who checked | none |
+| `watch_line(line="self", enable=true\|false\|null)` | Alerts on/off (writes the Watch, tells the Alerts service), or with `null` a status: watching, `profile` (stored, also while off), grants, who checked. `enable=true` keeps the stored profile and contacts (the line-holder sets them on the binding page, 04 §9) | none |
 
 Every result is the same envelope (`schemas.ToolResult`): `summary` (spoken text, only from
 `tower_policy.phrase`), `facts` (booleans, enums and timestamps only), `reason_codes`, `next_step`

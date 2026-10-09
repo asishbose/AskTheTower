@@ -59,3 +59,15 @@ class GrantNotFound(ConsentError):
 
 class WatchNotFound(ConsentError):
     pass
+
+
+class InvalidProfile(ConsentError, ValueError):
+    """Watch settings: the profile is not `self`, `transplant` or `care` (04 §9.2)."""
+
+
+class InvalidContacts(ConsentError, ValueError):
+    """Watch settings: a contact without an active `watch` grant on the line, the owner, a duplicate, or > 3."""
+
+
+class NoContact(ConsentError, ValueError):
+    """Watch settings: `transplant` or `care` needs at least one person to text (04 §9.2)."""

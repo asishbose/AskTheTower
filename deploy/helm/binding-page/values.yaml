@@ -24,9 +24,11 @@ env:
   CARRIER_SCOPES: number-verification
   CARRIER_PROFILE: proactive
   CARRIER_SECRET_REF: env:CARRIER_CLIENT_SECRET
+  ALERTS_INTERNAL_URL: http://alerts:8082                # 04 §9.2: re-subscribe after a watch-settings save
 secretEnv:
   SESSION_SECRET: {name: "", key: SESSION_SECRET}
   CARRIER_CLIENT_SECRET: {name: "", key: BINDING_CARRIER_CLIENT_SECRET}
+  ALERTS_INTERNAL_BEARER: {name: "", key: INTERNAL_BEARER}
 
 service:
   type: ClusterIP

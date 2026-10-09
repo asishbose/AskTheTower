@@ -45,6 +45,7 @@ class Targets:
     binding_url: str
     alerts_url: str
     bearer: str | None
+    mock_admin_token: str | None = None  # G1: compose generates it; kind/AWS leave the mock's admin open
 
     @property
     def tower_health(self) -> str:
@@ -88,6 +89,7 @@ def resolve(env: str | None = None) -> Targets:
         binding_url=get("BINDING_URL").rstrip("/"),
         alerts_url=get("ALERTS_URL").rstrip("/"),
         bearer=get("TOWER_BEARER") or None,
+        mock_admin_token=get("MOCK_ADMIN_TOKEN") or None,
     )
 
 
@@ -102,9 +104,12 @@ class MockAdmin:
     """The mock carrier's `/_admin/*` (08 §3) as four verbs: load a scenario, fire an event, advance the clock,
     inject a fault — plus `clear_faults` and `state`. Synchronous; raises on any non-2xx answer."""
 
-    def __init__(self, base_url: str, *, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self, base_url: str, *, client: httpx.Client | None = None, token: str | None = None
+    ) -> None:
         self.base_url = base_url.rstrip("/")
-        self._http = client or httpx.Client(base_url=self.base_url, timeout=15.0)
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        self._http = client or httpx.Client(base_url=self.base_url, timeout=15.0, headers=headers)
 
     def _ok(self, r: httpx.Response) -> dict[str, Any]:
         if r.status_code >= 300:

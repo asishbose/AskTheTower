@@ -11,6 +11,7 @@ useStoreEnv: false
 
 env:
   MOCK_ADMIN: "1"          # /_admin/* (scenario load, clock); ClusterIP only, never on an ingress
+  MOCK_ADMIN_TOKEN: ""     # G1 (08 §3): empty on kind/EKS — the ClusterIP and the NetworkPolicy keep /_admin private
   MOCK_CIBA: "0"
   MOCK_JITTER_MS: "0"
   MOCK_PORT: "8443"
@@ -49,7 +50,7 @@ networkPolicy:
   enabled: true
   from:
     allowAll: false
-    names: [tower-mcp, alerts, alerts-job, binding-page, ref-client, seed]
+    names: [tower-mcp, alerts, alerts-job, binding-page, ref-client, seed, demo-ui]   # demo-ui: /_admin only (kind)
     cidrs: []
 
 resources:

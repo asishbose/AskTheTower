@@ -45,8 +45,10 @@ async def test_backup_phone_used(world: World, carrier, clock, sender) -> None:
 
 async def test_self_watch_on_swapped_line(world: World, carrier, clock, sender) -> None:
     """Mom watches her own line: her alert phone *is* the swapped line → skipped (no backup) → the next
-    person in her chain is texted instead."""
+    person in her chain is texted instead. A contact on the line-holder's chain holds an active `watch` grant
+    (04 §9.1); one without it is skipped (06 §11.2.1)."""
     world.standard()
+    world.grant_watch(MOM, "user-mom", "user-neighbour", "mom")
     world.watch(MOM, "user-mom", "self", [("user-mom", False), ("user-neighbour", False)])
     carrier.lines[MOM] = FakeLine(sim_change_at=T0 - timedelta(days=60))
     await _swap(world, world.lines[MOM], carrier, clock)

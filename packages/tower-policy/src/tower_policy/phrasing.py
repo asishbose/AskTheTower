@@ -42,9 +42,11 @@ TEMPLATES: Final[dict[ReasonCode, dict[Form, str]]] = {
         "voice": "{Name} hasn't shared that with you.",
         "sms": "{Name} hasn't shared that with you.",
     },
+    # Neutral on purpose (D5): the last-known state may itself show a swap or forwarding, so the sentence says
+    # when the last answer was, never what it meant. The facts (stale=true, as_of) carry the state itself.
     ReasonCode.STALE_DATA: {
-        "voice": "I can't reach your carrier right now. The last I saw, at {time}, your line was fine.",
-        "sms": "Can't reach your carrier right now. Last seen fine at {time}.",
+        "voice": "I can't reach your carrier right now. The last I heard was at {time}.",
+        "sms": "Can't reach your carrier right now. Last heard at {time}.",
     },
     ReasonCode.CARRIER_ERROR: {
         "voice": "I can't reach your carrier right now. Try again in a minute.",

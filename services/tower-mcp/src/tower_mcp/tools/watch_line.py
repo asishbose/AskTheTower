@@ -3,15 +3,17 @@
 - `enable` true/false: upsert the Watch (04 store), then ask Alerts to (un)subscribe the carrier events
   (`AlertsClient`, an HTTP call to Alerts' internal endpoint — prompt 10). An Alerts failure is logged and
   does not undo the Watch: Alerts' scheduled polls read Watches by profile (06 §1), so the line is still
-  watched, just without the seconds-fast subscription until Alerts reconciles.
-- `enable` null: status — `watching`, `notify_via`, and for the line-holder `grants` and `recent_checks`
+  watched, just without the seconds-fast subscription until Alerts reconciles. The caller's own Watch keeps
+  its stored profile and contacts (the line-holder saves them on the binding page, 04 §9); with no Watch the
+  defaults are `self` for one's own line and `care` for an alias, chain `[caller]` (06 §11.1).
+- `enable` null: status — `watching`, `notify_via`, `profile` (stored, also while off), and for the line-holder `grants` and `recent_checks`
   (this is how "who can see my line?" / "who checked my line this week?" are answered, 04 §6, 07 §4).
   A grantee asking about a line they watch gets `watching` only: a watcher never reads who else checked.
 
 Either way the call is audited (`tool=watch_line`, which `recent_checks` does not count as a check).
 
 Summaries: `tower_policy` has no template for a watch state change or status (03 §4 lists the twelve reason
-codes only), so the three non-refusal sentences below are fixed strings with **no interpolation** — nothing
+codes only), so the non-refusal sentences below are fixed strings with **no interpolation** — nothing
 from the facts is formatted into them. Refusals are phrased by `tower_policy.phrase` like every other tool.
 """
 
@@ -53,14 +55,25 @@ OK_OUTCOME: Final = Outcome(kind="ok", reason_codes=[ReasonCode.OK])
 
 WATCH_SUMMARIES: Final[dict[str, str]] = {
     "enabled": "Alerts are on for that line. You'll get a text if it's SIM-swapped or forwarded.",
+    # `transplant` / `care` also watch reachability (06 §11.1); still fixed, no interpolation, no digits.
+    "enabled_reach": (
+        "Alerts are on for that line. A text goes out if it's SIM-swapped, forwarded, or off the network too long."
+    ),
     "disabled": "Alerts are off for that line.",
     "status_on": "Alerts are on for that line.",
     "status_off": "Alerts are off for that line.",
 }
 
 
+REACH_PROFILES: Final[frozenset[Profile]] = frozenset({"transplant", "care"})
+
+
 def default_profile(line: str) -> Profile:
     return "self" if line == SELF else "care"
+
+
+def enabled_summary(profile: Profile) -> str:
+    return WATCH_SUMMARIES["enabled_reach" if profile in REACH_PROFILES else "enabled"]
 
 
 def recent_fact(rc: RecentChecks, viewer: str) -> RecentChecksFact:
@@ -106,11 +119,11 @@ async def watch_line(
     owner = view.grant == "owner"
 
     def change() -> Watch:
+        # Only the caller's own row is read: a grantee's Watch never reads the line-holder's settings, and
+        # the line-holder's saved profile and contacts are kept exactly as stored (06 §11.1).
         existing = get_watch(deps.store, line_id, user_id)
         profile: Profile = existing.profile if existing else default_profile(line)
-        escalation = (
-            existing.escalation if existing and existing.escalation else [EscalationStep(user_id=user_id)]
-        )
+        escalation = existing.escalation if existing else [EscalationStep(user_id=user_id)]
         return upsert_watch(
             deps.store,
             Watch(
@@ -142,7 +155,7 @@ async def watch_line(
         else:
             watch = await anyio.to_thread.run_sync(change)
             grants, checks, watching = [], None, watch.enabled
-            summary = WATCH_SUMMARIES["enabled" if watching else "disabled"]
+            summary = enabled_summary(watch.profile) if watching else WATCH_SUMMARIES["disabled"]
     except STORE_ERRORS:
         raise ConsentUnavailable("consent store unavailable") from None
     timer.mark("store")
@@ -161,6 +174,7 @@ async def watch_line(
         watching=watching,
         since=None,
         notify_via="sms" if watching else None,
+        profile=watch.profile if watch else None,
         grants=grants,
         recent_checks=checks,
     )

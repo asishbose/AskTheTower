@@ -52,9 +52,14 @@ def seed(store: Store, make_record: RecordFactory, tmp_path: Path) -> tuple[list
         }
         for i, r in enumerate(rows)
     ]
-    calls.append({"trace_id": "tr-nb", "ts": "2026-10-06T15:00:00Z", "tool": "line_is_ok", "line_id": None})
+
+    # Relative to NOW (wall-clock, for DynamoDB Local's TTL sweeper): a hard-coded date drifted out of the window.
+    def at(delta: timedelta) -> str:
+        return (NOW + delta).isoformat().replace("+00:00", "Z")
+
+    calls.append({"trace_id": "tr-nb", "ts": at(timedelta(hours=1)), "tool": "line_is_ok", "line_id": None})
     calls.append(
-        {"trace_id": "tr-old", "ts": "2026-10-01T15:00:00Z", "tool": "line_is_ok", "line_id": rows[0].line_id}
+        {"trace_id": "tr-old", "ts": at(timedelta(days=-5)), "tool": "line_is_ok", "line_id": rows[0].line_id}
     )  # outside the 24 h window
     return rows, write_traces(tmp_path / "traces.jsonl", calls)
 

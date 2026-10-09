@@ -122,7 +122,7 @@ def mock_admin(env: Targets, running_stack: Stack) -> Iterator[MockAdmin]:
             f"ENV={env.env}: the mock carrier has no public URL (internal ALB); its admin API is reached through "
             "`scripts/aws_seed.py` (ECS Exec) — run the nightly chaos job there"
         )
-    admin = MockAdmin(env.mock_url)
+    admin = MockAdmin(env.mock_url, token=env.mock_admin_token)
     yield admin
     try:
         admin.clear_faults()

@@ -70,18 +70,19 @@ def test_regrant_after_revoke_flips_back(store: Store, mom_line: str, now: datet
     assert resolve(store, "asish", "mom").view.grant == "reachability"
 
 
-def test_unknown_alias_is_bound_false(store: Store, mom_line: str, now: datetime, counting) -> None:  # type: ignore[no-untyped-def]
+def test_unknown_alias_is_no_consent(store: Store, mom_line: str, now: datetime, counting) -> None:  # type: ignore[no-untyped-def]
+    """04 §5 / D18: no grant under the alias → `grant="none"`, no line_id (NO_CONSENT, never NOT_BOUND)."""
     grant(store, mom_line, "asish", "watch", "mom", granted_by="mom", now=now)
     with counting() as c:
         r = resolve(store, "asish", "dad")
     assert c.calls == ["Query"]
-    assert not r.view.bound and r.view.grant == "none" and r.line_id is None
+    assert r.view.bound and r.view.grant == "none" and r.line_id is None and r.view.revoked_at is None
 
 
 def test_alias_of_another_grantee_is_not_visible(store: Store, mom_line: str, now: datetime) -> None:
     grant(store, mom_line, "asish", "watch", "mom", granted_by="mom", now=now)
     r = resolve(store, "stranger", "mom")
-    assert not r.view.bound and r.view.grant == "none"
+    assert r.view.grant == "none" and r.line_id is None and r.view.line_id is None  # nothing of Mom's line
 
 
 @pytest.mark.parametrize("line", ["+15555550123", "15555550123", "x" * 30, "", "self2"])
@@ -91,7 +92,7 @@ def test_number_shaped_or_invalid_line_makes_no_request(
     with counting() as c:
         r = resolve(store, "mom", line)
     assert c.calls == []
-    assert not r.view.bound and r.view.grant == "none"
+    assert r.view.grant == "none" and r.line_id is None  # D18: NO_CONSENT, nothing to audit
 
 
 def test_resolve_has_no_cache(store: Store, mom_line: str, now: datetime, counting) -> None:  # type: ignore[no-untyped-def]

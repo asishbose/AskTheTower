@@ -1,7 +1,9 @@
-"""Everything a request handler needs, built once per app: settings, store, crypto, carrier, clock, signer."""
+"""Everything a request handler needs, built once per app: settings, store, crypto, carrier, clock, signer, the
+Alerts client and process-local counters."""
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -12,6 +14,7 @@ from fastapi import Request
 from tower_audit import MarkerSigner
 from tower_consent import LineIdHasher, MsisdnCipher, Store
 
+from binding_page.alerts import AlertsWatch, RecordingAlerts
 from binding_page.config import Settings
 from binding_page.session import SESSION_COOKIE, Signer
 
@@ -32,6 +35,8 @@ class Deps:
     # Used only by mobile_data.start in TOWER_ENV=local (the page performs the authorize request itself).
     carrier_http: httpx.AsyncClient
     now: Callable[[], datetime] = utcnow
+    alerts: AlertsWatch = field(default_factory=RecordingAlerts)
+    metrics: Counter[str] = field(default_factory=Counter)  # no per-line labels (10 §2)
     signer: Signer = field(init=False)
 
     def __post_init__(self) -> None:

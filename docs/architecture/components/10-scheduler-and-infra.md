@@ -17,7 +17,7 @@
 | Reference client | CLI | CLI, or AgentCore Runtime | Job (`make demo ENV=eks`) |
 | Store | DynamoDB Local | DynamoDB on-demand | DynamoDB on-demand (same tables, IRSA) |
 | Audit reconciliation | skipped | nightly Lambda over Observability traces | CronJob (shipped off: needs Tower's spans via ADOT) |
-| Demo UI ([11](11-demo-ui.md)): demo tooling, laptop only (not built yet) | container on `127.0.0.1:8090` | not deployed: runs on the laptop against `deploy/.env.aws` (no ECR repository, no Terraform) | not deployed (`values-eks` `enabled: false`; the chart is for kind only) |
+| Demo UI ([11](11-demo-ui.md)): demo tooling, laptop only | container on `127.0.0.1:8090` (scripted agent); `make showcase-ui` runs it on the host with Bedrock | not deployed: runs on the laptop against `deploy/.env.aws` (no ECR repository, no Terraform); carrier pane and macros off | not deployed (`values-eks` `enabled: false`; the chart is for kind only) |
 
 The EKS column is the portability proof: the same images, the same env names, the same transcripts. It is created for the showcase window and torn down (`make down-eks`); the demo default is local, and the Alexa+ track's primary target is AgentCore Runtime.
 
@@ -72,7 +72,8 @@ make demo          # the three moments + the transplant closing story via the re
 make test          # unit + contract + conformance + privacy + latency
 make policy-table  # prints the decision table (artifacts/policy-table.md)
 make corpus        # tool-selection table from the reference client
-make showcase-<x>  # one component's standalone showcase: alexa tower binding gateway alerts audit mock ref infra
+make showcase-<x>  # one component's standalone showcase: alexa tower binding gateway alerts audit mock ref infra ui
+make showcase-ui   # the demo control room (11) on the host at 127.0.0.1:8090: Bedrock when credentials resolve, else scripted (needs make up)
 make showcase      # all of the above, in testing-and-showcase.md §4 order
 make ecr-up        # the five ECR repositories in their own Terraform root/state (once; idempotent) → artifacts/tf-outputs-ecr.json
 make ecr-outputs   # rewrite artifacts/tf-outputs-ecr.json from the ECR root (what `make push` reads before the first deploy)
@@ -82,7 +83,7 @@ make tf-check      # terraform fmt + validate of the main and ecr roots (init -b
 make down          # ENV=aws: terraform destroy of the main root — the ECR repositories and their images are kept; compose down
 make down-all      # after judging: down-eks (if up) + down ENV=aws + destroy the ECR root — the only target that deletes images
 make test-unit | test-integration | test-e2e [ENV=local|eks|aws] | test-nightly | test-report
-make build | push | sbom | scan        # images; push = buildx linux/arm64 to ECR (sha + latest; records artifacts/image-tag); SBOM; CVE scan (fails on critical)
+make build | push | sbom | scan        # images (build/sbom/scan: six, incl. demo-ui; push: the five services only); push = buildx linux/arm64 to ECR (sha + latest; records artifacts/image-tag); SBOM; CVE scan (fails on critical)
 make helm-lint | helm-template | helm-kind   # charts (lint + helm-unittest + kubeconform); kind install + demo (§6); helm-deps is their internal prerequisite
 make deploy-eks | down-eks             # EKS module + umbrella chart; teardown of the cluster only
 make showcase-artifacts  # regenerate every generated artefact; fails if any is stale

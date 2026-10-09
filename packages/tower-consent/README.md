@@ -11,11 +11,13 @@ What it does:
   (`MsisdnCipher`). Local implementations use keys from the environment; KMS implementations use GenerateMac and
   a GenerateDataKey envelope. Neither a `line_id` nor a ciphertext can look like a phone number, and nothing logs.
 - **`resolve(store, user_id, line)`**: the one read on the hot path. `"self"` → owner; an alias → the grant kind;
-  revoked → `grant="none"`; unknown → `bound=False`. Exactly one DynamoDB request, no cache.
+  revoked → `grant="none"`; unknown → `grant="none"` with no line (`NO_CONSENT`, D18); `"self"` with no line → `bound=False`. Exactly one DynamoDB request, no cache.
 - **Writes**: `bind_line` (idempotent per line; refuses a number owned by someone else), single-use 10-minute bind
   tokens, `grant` / `revoke` (only `watch` and `reachability`; alias collisions rejected; never by voice;
   revoking `watch` disables the grantee's Watch on that line — `disable_watch`, kept not deleted),
-  Watches with a `last_state` write that is conditional on its `at` timestamp.
+  Watches with a `last_state` write that is conditional on its `at` timestamp, and the line-holder's watch settings
+  (`set_watch_settings`, 04 §9: profile + up to three contacts who hold an active `watch` grant; `requires_ack`
+  derived; every refusal writes nothing; revoking a contact's `watch` grant drops them from the chain).
 
 What it doesn't do: talk to a carrier, decide policy (that's `tower-policy`), cache, or store a phone number
 anywhere but inside `msisdn_enc` / `alert_phone_enc` ciphertext.

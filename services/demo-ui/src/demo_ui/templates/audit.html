@@ -1,0 +1,4 @@
+{% if rows %}
+<table><thead><tr><th>time</th><th>log</th><th>line</th><th>actor</th><th>tool</th><th>trigger</th><th>outcome</th><th>codes</th><th>message</th></tr></thead>
+<tbody>{% for r in rows %}<tr class="o-{{ r.outcome }}"><td>{{ r.ts }}</td><td>{{ r.log }}</td><td class="ref">{{ r.line }}</td><td>{{ r.actor }}</td><td>{{ r.tool }}</td><td>{{ r.trigger }}</td><td>{{ r.outcome }}</td><td>{% for c in r.codes %}<span class="chip">{{ c }}</span>{% endfor %}</td><td>{{ r.message_ref or "" }}</td></tr>{% endfor %}</tbody></table>
+{% else %}<p class="muted">no audit rows yet</p>{% endif %}

@@ -39,13 +39,13 @@ MOCK_CLIENT="{CLIENT_ID}:{CLIENT_SECRET}"   # local placeholder from config/clie
 TOKEN=$(curl -s -u "$MOCK_CLIENT" -d grant_type=client_credentials {URL}/oauth2/token | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
 
 # 1. load the demo scenario (clock 2026-10-05T14:00Z)
-curl -s -X POST {URL}/_admin/scenarios/load -H 'content-type: application/json' -d '{{"name":"demo"}}'
+curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {URL}/_admin/scenarios/load -H 'content-type: application/json' -d '{{"name":"demo"}}'
 
 # 2. check → false
 curl -s -X POST {URL}/sim-swap/v2/check -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{{"phoneNumber":"+16135550101","maxAge":1}}'
 
 # 3. advance the clock 12 minutes → the timeline fires sim_swap → check → true
-curl -s -X POST {URL}/_admin/clock -H 'content-type: application/json' -d '{{"advance_s":720}}'
+curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {URL}/_admin/clock -H 'content-type: application/json' -d '{{"advance_s":720}}'
 curl -s -X POST {URL}/sim-swap/v2/check -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{{"phoneNumber":"+16135550101","maxAge":1}}'
 
 # 4. retrieve-date shows the moved timestamp (14:12Z)
@@ -54,11 +54,11 @@ curl -s -X POST {URL}/sim-swap/v2/retrieve-date -H "authorization: Bearer $TOKEN
 # 5. subscribe to Mom's line with the loopback sink, fire an admin event, watch the CloudEvent arrive
 curl -s -X POST {URL}/sim-swap-subscriptions/v0.3/subscriptions -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \\
   -d '{{"protocol":"HTTP","sink":"https://sink.mock.local/demo","types":["org.camaraproject.sim-swap-subscriptions.v0.swapped"],"config":{{"subscriptionDetail":{{"phoneNumber":"+16135550102"}}}}}}'
-curl -s -X POST {URL}/_admin/lines/%2B16135550102/events -H 'content-type: application/json' -d '{{"event":"sim_swap"}}'
+curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {URL}/_admin/lines/%2B16135550102/events -H 'content-type: application/json' -d '{{"event":"sim_swap"}}'
 curl -s {URL}/_admin/sink
 
 # 6. inject a timeout fault and watch it count down (the next call takes > 400 ms, then it's gone)
-curl -s -X POST {URL}/_admin/faults -H 'content-type: application/json' -d '{{"kind":"timeout","n":1}}'
+curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {URL}/_admin/faults -H 'content-type: application/json' -d '{{"kind":"timeout","n":1}}'
 time curl -s -X POST {URL}/sim-swap/v2/check -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{{"phoneNumber":"+16135550101"}}'
 curl -s {URL}/_admin/state | python3 -c 'import json,sys;print("faults:", json.load(sys.stdin)["faults"])'
 

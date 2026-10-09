@@ -40,6 +40,7 @@ class Settings:
     """All runtime configuration. Construct directly in tests; `Settings.from_env()` in the container."""
 
     admin: bool = False
+    admin_token: str | None = field(default=None, repr=False)  # G1: bearer for the mutating /_admin routes
     ciba: bool = False
     jitter_ms: int = 0
     port: int = 8443
@@ -62,6 +63,7 @@ class Settings:
         env = os.environ
         return cls(
             admin=_flag("MOCK_ADMIN"),
+            admin_token=env.get("MOCK_ADMIN_TOKEN") or None,
             ciba=_flag("MOCK_CIBA"),
             jitter_ms=int(env.get("MOCK_JITTER_MS", "0") or 0),
             port=int(env.get("MOCK_PORT", "8443")),

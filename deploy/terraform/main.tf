@@ -332,10 +332,12 @@ module "lambdas" {
 
   binding_environment = merge(
     {
-      SESSION_SECRET        = random_password.session_secret.result
-      CARRIER_CLIENT_ID     = local.binding_client.id
-      CARRIER_AUTHORIZE_URL = local.carrier.authorize_url
-      CARRIER_TOKEN_URL     = local.carrier.token_url
+      SESSION_SECRET         = random_password.session_secret.result
+      CARRIER_CLIENT_ID      = local.binding_client.id
+      CARRIER_AUTHORIZE_URL  = local.carrier.authorize_url
+      CARRIER_TOKEN_URL      = local.carrier.token_url
+      ALERTS_INTERNAL_URL    = local.public_base_url # 04 §9.2: re-subscribe after a watch-settings save
+      ALERTS_INTERNAL_BEARER = random_password.internal_bearer.result
     },
     var.binding_carrier_client == "direct" ? {
       CARRIER_CLIENT        = "direct"

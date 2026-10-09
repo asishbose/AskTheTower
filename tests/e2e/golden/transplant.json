@@ -6,6 +6,9 @@
   "user": "user-asish",
   "steps": [
     {
+      "control": "binding page: Asish saves watch settings — must stay reachable; text the partner, then the neighbour (06 §11.4)"
+    },
+    {
       "utterance": "Turn on alerts for my line.",
       "tool_calls": [
         {

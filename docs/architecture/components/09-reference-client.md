@@ -54,10 +54,18 @@ Forty-odd entries. The test asserts selection and arguments; it does not assert 
 
 Every run writes a transcript (`utterance → tool call → structured result → spoken text`) to `artifacts/transcripts/`. The README embeds one. This is the evidence a judge can read without a device. Golden files (`tests/e2e/golden/`, one set for ENV=local, eks and aws) hold the tool calls and reason codes per utterance; `ref_client.transcript.compare` is the check. Between utterances the demo calls the mock's `/_admin/*` and, for moment 3's revoke, the binding page's local grant admin `POST /_admin/grants {owner_user_id, grantee_user_id, grant, alias, action}` (`BIND_ADMIN=1`).
 
+The demo script fires mock events by the line's opaque `ref`, read from `GET /_admin/state?view=refs`, so it never handles a number, and sends `MOCK_ADMIN_TOKEN` as a bearer when it is set (08 §3). `run_demo(agent_for, control, *, reset=True, on_step=None, replay=())` (G4, doc 11 §10): `on_step` receives a `StepReport` per step (story, step id `<story>#<n>`, kind, narration, expected and actual reason codes, `ok`, `elapsed_ms`, `replay`, fired timeline events, the `Turn`); `reset=False` skips the scenario reload and only looks up the line refs. The CLI's behaviour is unchanged.
+
+**Who may depend on it.** No product component — Tower, Alerts, the binding page, the mock carrier, `packages/` — imports `ref_client` or waits on it, so the product never has a model on its path (design rule 1). The one consumer is the demo UI (11), which is laptop-only demo tooling outside paths A/B/C and drives Tower through this client exactly as `make demo` does; nothing imports the demo UI in turn. `tests/test_fallback.py::test_nothing_depends_on_the_reference_client` checks both.
+
 ## 5. Not a second policy path
 
 The client receives Tower's `summary` and may read it verbatim or rephrase; it may not add facts. The system prompt says so, and a test asserts no digits appear in its output that weren't in `summary` (no invented times or numbers). The client also enforces it: a model reply carrying a digit that no `summary` has is replaced by the summary verbatim, and the transcript records the replacement (`guard`).
 
-## 6. Showcase on its own
+## 6. Deployed as the web chat page (decision 2026-10-09)
+
+For the AWS demo the reference client is also deployed as a signed-in chat page: the agent on AgentCore Runtime (`POST /invocations`, Cognito JWT), a thin page in front (Lambda + CloudFront). Same prompts, stories and golden transcripts; `next_step` is copied from the tool result verbatim. Flows, rules and open questions: [`../bind-and-alert-flows.md`](../bind-and-alert-flows.md). This is the Alexa+ stand-in if simulator access is unavailable (prompt 15 fallback); the laptop demo UI (11) is unchanged.
+
+## 7. Showcase on its own
 
 `make showcase-ref`: the three demo moments driven from the terminal against local Tower + mock, with TTS if available. Then `make corpus`: the selection table with pass/fail. See `testing-and-showcase.md` §2.9.

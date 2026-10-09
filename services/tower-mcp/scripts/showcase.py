@@ -48,14 +48,14 @@ Headers      : Authorization: Bearer {bearer}
    descriptions verbatim from docs/architecture/components/01-alexa-surface.md §2.
 2. Call line_is_ok {{"line": "self"}}            → reason_codes ["OK"], "Your line is as it was."
 3. SIM swap on the mock, then call again       → ["SIM_SWAPPED_RECENT"] with the swap's time:
-     curl -s -X POST {mock}/_admin/clock -H 'content-type: application/json' -d '{{"advance_s": 720}}'
-     curl -s -X POST {mock}/_admin/lines/{asish}/events -H 'content-type: application/json' -d '{{"event": "sim_swap"}}'
+     curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {mock}/_admin/clock -H 'content-type: application/json' -d '{{"advance_s": 720}}'
+     curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {mock}/_admin/lines/{asish}/events -H 'content-type: application/json' -d '{{"event": "sim_swap"}}'
 4. Call forwarding on the mock, then call again → ["CALL_FORWARDING_SET"]:
-     curl -s -X POST {mock}/_admin/lines/{asish}/events -H 'content-type: application/json' -d '{{"event": "cf_set"}}'
+     curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {mock}/_admin/lines/{asish}/events -H 'content-type: application/json' -d '{{"event": "cf_set"}}'
 5. Call line_is_ok {{"line": "bob"}}             → ["NOT_BOUND"], next_step.kind "bind_line" with a binding URL
 6. Call line_is_ok {{"line": "mom"}}; is_reachable {{"line": "mom"}}; watch_line {{"line": "self"}} (status)
    (as X-Tower-User: user-mom, watch_line self shows the grant to "mom" and who checked)
-7. Reset: curl -s -X POST {mock}/_admin/scenarios/load -H 'content-type: application/json' -d '{{"name": "demo"}}'
+7. Reset: curl -s -X POST -H "Authorization: Bearer $MOCK_ADMIN_TOKEN" {mock}/_admin/scenarios/load -H 'content-type: application/json' -d '{{"name": "demo"}}'
 8. Latency (in-process, 200 calls per tool): uv run python scripts/latency.py --out artifacts/latency.md
 ==================================================================================================
 """

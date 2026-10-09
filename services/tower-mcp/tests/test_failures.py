@@ -50,7 +50,7 @@ async def test_carrier_timeout_with_watch_is_stale_with_last_known(stack: Stack)
     assert r.reason_codes == ["STALE_DATA"]
     assert (
         r.summary
-        == "I can't reach your carrier right now. The last I saw, at 9:30 today, your line was fine."
+        == "I can't reach your carrier right now. The last I heard was at 9:30 today."  # 03 §4, neutral (D5)
     )
     assert r.facts.stale is True and r.facts.source == "watch"
     assert r.facts.call_forwarding == "none" and r.facts.sim_swapped_recently is False

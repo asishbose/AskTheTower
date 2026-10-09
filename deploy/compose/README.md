@@ -20,11 +20,19 @@ and otherwise in its container. The seed always runs in a container.
 host :8080 ─► tower-mcp :8000 /mcp ──► mock-carrier :8443 (DirectClient; MOCK_ADMIN=1; demo.yaml)
                  │   └──► alerts :8082 /internal/watch (bearer INTERNAL_BEARER)
                  └──► dynamodb-local :8000  ◄── binding-page :8081 (BIND_ADMIN=1) ◄── host :8081
-host :8443 ─► mock-carrier ──CloudEvents, https──► alerts-tls :8443 (Caddy, internal CA) ──► alerts /hooks/*
+                                                        └──► alerts :8082 /internal/watch (after a watch-settings save)
+127.0.0.1:8443 ─► mock-carrier ──CloudEvents, https──► alerts-tls :8443 (Caddy, internal CA) ──► alerts /hooks/*
 host :8082 ─► alerts (ALERTS_MODE=local: in-process scheduler; SMS → log line; mock clock)
 host :8000 ─► dynamodb-local (in memory; six consent/audit tables + AlertsState)
+127.0.0.1:8090 ─► demo-ui (doc 11; scripted agent) ──► tower-mcp /mcp · mock /_admin (bearer MOCK_ADMIN_TOKEN)
+                  · binding-page /_admin · alerts /internal/sent (bearer INTERNAL_BEARER) · dynamodb-local (read)
 tools profile: seed (tower-mcp image + ./seed), ref-client (TOWER_URL=http://tower-mcp:8000/mcp)
 ```
+
+**Loopback only.** The mock carrier and the demo UI are published on `127.0.0.1`, not on every interface: the
+mock's `/_admin` can reset the demo, and the UI can revoke grants (doc 11 decisions 1 and 7). The mock's mutating
+`/_admin` routes also need `Authorization: Bearer $MOCK_ADMIN_TOKEN` (generated into `.env` by `make up`; the seed,
+`make demo`, the e2e helpers and the demo UI send it). Its GET routes stay open: Tower and Alerts read the clock.
 
 The network is `tower`. Containers reach each other by service name.
 

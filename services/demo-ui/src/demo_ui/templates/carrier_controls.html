@@ -1,0 +1,18 @@
+{% if not enabled %}
+<p class="off">{{ reason }}</p>
+{% else %}
+<div class="row">
+  <button hx-post="/carrier/reset" hx-target="#carrier-status">Reset (make seed)</button>
+  {% for m in (1, 12, 20) %}<button hx-post="/carrier/advance" hx-vals='{"minutes": {{ m }}}' hx-target="#carrier-status">+{{ m }} min</button>{% endfor %}
+</div>
+{% for who in ("asish", "mom") %}
+<div class="row"><span class="who">{{ who | capitalize }}</span>
+  {% for ev in events %}<button hx-post="/carrier/fire" hx-vals='{"who": "{{ who }}", "event": "{{ ev }}"}' hx-target="#carrier-status">{{ ev }}</button>{% endfor %}
+</div>
+{% endfor %}
+<div class="row"><span class="who">faults</span>
+  {% for k in faults %}<button hx-post="/carrier/fault" hx-vals='{"kind": "{{ k }}"}' hx-target="#carrier-status">{{ k }}</button>{% endfor %}
+  <button hx-post="/carrier/faults/clear" hx-target="#carrier-status">clear</button>
+</div>
+{% endif %}
+<div id="carrier-status"></div>

@@ -36,6 +36,8 @@ ifeq ($(QUIET),1)
 MAKEFLAGS += --silent --no-print-directory
 endif
 SERVICES := mock-carrier tower-mcp binding-page alerts ref-client
+# Built locally, never pushed (doc 11 §8.7): `push` and ECR stay at SERVICES; build/sbom/scan cover IMAGES.
+IMAGES := $(SERVICES) demo-ui
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 # endpoints per ENV (local defaults; eks/aws are rendered from outputs by scripts/render_env.py)
 ifeq ($(ENV),local)
@@ -48,6 +50,9 @@ DYNAMO_ENDPOINT ?= http://localhost:8000
 # e2e tests) read it from there. Recursive, so it is read when a recipe runs, after `make up` has written it.
 TOWER_BEARER ?= $(shell sed -n 's/^TOWER_BEARER=//p' $(COMPOSE_ENV_FILE) 2>/dev/null)
 export TOWER_BEARER
+# The mock's admin bearer (G1, 08 §3) for host-side tools: make demo, the e2e helpers, showcase-ui.
+MOCK_ADMIN_TOKEN ?= $(shell sed -n 's/^MOCK_ADMIN_TOKEN=//p' $(COMPOSE_ENV_FILE) 2>/dev/null)
+export MOCK_ADMIN_TOKEN
 else
 -include deploy/.env.$(ENV)
 endif

@@ -8,7 +8,8 @@
 # are what .env.example says, so `docker compose config` works on a fresh clone.
 #
 # Host ports (mk/vars.mk): dynamodb-local 8000 · mock-carrier 8443 · tower-mcp 8080 (→ container 8000, /mcp)
-#                          binding-page 8081 · alerts 8082.  alerts-tls (https :8443) is internal only.
+#                          binding-page 8081 · alerts 8082 · demo-ui 8090.  alerts-tls (https :8443) is internal only.
+# The mock (its /_admin can reset the demo) and the demo UI are published on 127.0.0.1 only (doc 11 decisions 1, 7).
 # Containers reach each other by service name on the one network `tower`.
 name: ask-the-tower
 
@@ -62,9 +63,11 @@ services:
   mock-carrier:
     build: { context: ../.., dockerfile: services/mock-carrier/Dockerfile }
     image: ask-the-tower/mock-carrier:${IMAGE_TAG:-latest}
-    ports: ["${MOCK_HOST_PORT:-8443}:8443"]
+    ports: ["127.0.0.1:${MOCK_HOST_PORT:-8443}:8443"]
     environment:
       MOCK_ADMIN: "1"
+      # G1 (08 §3): the bearer for /_admin's POST/DELETE routes; GET clock/state stay open for Tower and Alerts
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-}
       MOCK_CIBA: ${MOCK_CIBA:-0}
       MOCK_JITTER_MS: ${MOCK_JITTER_MS:-0}
       MOCK_PORT: "8443"
@@ -125,6 +128,9 @@ services:
       SESSION_TTL_S: ${SESSION_TTL_S:-1800}
       BIND_ADMIN: "1"
       PORT: "8081"
+      # 04 §9.2: a watch-settings save on an enabled Watch re-subscribes the line (failures are swallowed)
+      ALERTS_INTERNAL_URL: http://alerts:8082
+      ALERTS_INTERNAL_BEARER: ${INTERNAL_BEARER:-}
       CARRIER_CLIENT: direct
       CARRIER_BACKEND: mock
       CARRIER_BASE_URL: http://mock-carrier:8443
@@ -174,6 +180,40 @@ services:
       start_period: 60s
     networks: [tower]
 
+  # Demo control room (doc 11): laptop-only tooling, scripted agent here (decision 6; the judge-facing run with
+  # Bedrock is `make showcase-ui` on the host). Published on 127.0.0.1 only, so no DEMO_UI_TOKEN is needed.
+  # Its DynamoDB Local credentials are set in code, not as AWS_* env vars (they would look like Bedrock's).
+  demo-ui:
+    build: { context: ../.., dockerfile: services/demo-ui/Dockerfile }
+    image: ask-the-tower/demo-ui:${IMAGE_TAG:-latest}
+    ports: ["127.0.0.1:${DEMO_UI_HOST_PORT:-8090}:8090"]
+    environment:
+      ENV: local
+      TOWER_URL: http://tower-mcp:8000/mcp
+      TOWER_BEARER: ${TOWER_BEARER:-}
+      MOCK_URL: http://mock-carrier:8443
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-}
+      BINDING_URL: http://binding-page:8081
+      ALERTS_URL: http://alerts:8082
+      ALERTS_INTERNAL_BEARER: ${INTERNAL_BEARER:-}
+      DYNAMO_ENDPOINT: http://dynamodb-local:8000
+      TOWER_TABLE_PREFIX: ${TOWER_TABLE_PREFIX:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      REF_AGENT: scripted
+      DEMO_UI_HOST: 0.0.0.0
+      DEMO_UI_PORT: "8090"
+      DEMO_UI_PUBLISHED_LOOPBACK: "1"
+      FEED_POLL_S: "2"
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      tower-mcp: { condition: service_healthy }
+      binding-page: { condition: service_healthy }
+      alerts: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8090/healthz', timeout=2)"]
+      <<: *healthy
+    networks: [tower]
+
   # --- tools (profile: tools) — not started by `make up`; run with `docker compose --profile tools run --rm …`
   seed:
     image: ask-the-tower/tower-mcp:${IMAGE_TAG:-latest}  # built by tower-mcp above; has tower_consent + httpx
@@ -182,6 +222,7 @@ services:
     environment:
       <<: *store-env
       MOCK_URL: http://mock-carrier:8443
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-}
       BINDING_URL: http://binding-page:8081
     volumes:
       - ./seed:/seed:ro
@@ -200,6 +241,7 @@ services:
       TOWER_URL: http://tower-mcp:8000/mcp
       TOWER_BEARER: ${TOWER_BEARER:-}
       MOCK_URL: http://mock-carrier:8443
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-}
       BINDING_URL: http://binding-page:8081
       REF_AGENT: ${REF_AGENT:-auto}
       REF_ARTIFACTS_DIR: /out

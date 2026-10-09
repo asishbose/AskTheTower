@@ -1,4 +1,5 @@
-"""The resident's own page (04 §3, §6): lines, grants given and received, invite codes, grant, revoke.
+"""The resident's own page (04 §3, §6, §9.3): lines, the Watching card per owned line, grants given and
+received, invite codes, grant, revoke. (The Watching card's form posts to `routes/watch_settings.py`.)
 
 Every route here needs the page session (set after a successful bind) and every POST a CSRF token. Revocation
 exists only here: there is no revoke by voice and no revoke without the page session (04 §3).
@@ -24,7 +25,7 @@ from tower_consent.errors import (
     NotLineOwner,
 )
 
-from binding_page import invite
+from binding_page import invite, watching
 from binding_page.deps import Deps, PageSession, current_session, get_deps
 from binding_page.templating import render
 
@@ -64,6 +65,8 @@ def me_context(deps: Deps, s: PageSession) -> dict[str, Any]:
         "lines": lines,
         "given": given,
         "received": list_granted_to(deps.store, s.user_id),
+        "watching": [watching.card(deps, line.line_id, s.user_id) for line in lines],
+        "contact_slots": range(watching.CONTACT_SLOTS),
         "csrf": deps.signer.csrf(s.raw),
         "kinds": KINDS,
     }

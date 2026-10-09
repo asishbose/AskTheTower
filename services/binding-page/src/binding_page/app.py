@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
@@ -12,11 +13,23 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from binding_page.alerts import AlertsWatch, HttpAlerts, RecordingAlerts
 from binding_page.deps import Deps
-from binding_page.routes import admin, audit, bind, grants
+from binding_page.routes import admin, audit, bind, grants, watch_settings
+
+# The AWS SDK's DEBUG output is a wire dump (request bodies, ciphertext, 10-digit CRC32 headers). Nothing at
+# that level belongs in this service's logs, whatever LOG_LEVEL is (04 §7 privacy grep; 06 §11.5 criterion 8).
+WIRE_LOGGERS = ("botocore", "boto3", "urllib3")
+
+
+def pin_wire_loggers() -> None:
+    for name in WIRE_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def create_app(deps: Deps, *, close_on_shutdown: bool = False) -> FastAPI:
+    pin_wire_loggers()
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
@@ -25,6 +38,9 @@ def create_app(deps: Deps, *, close_on_shutdown: bool = False) -> FastAPI:
             aclose = getattr(deps.carrier, "aclose", None)
             if aclose is not None:
                 await aclose()
+            close = getattr(deps.alerts, "close", None)
+            if close is not None:
+                close()
 
     app = FastAPI(
         title="Ask the Tower — binding page",
@@ -41,6 +57,7 @@ def create_app(deps: Deps, *, close_on_shutdown: bool = False) -> FastAPI:
 
     app.include_router(bind.router)
     app.include_router(grants.router)
+    app.include_router(watch_settings.router)
     app.include_router(audit.router)
     app.include_router(admin.router)
     return app
@@ -59,6 +76,11 @@ def deps_from_env(env: Mapping[str, str] | None = None) -> Deps:
     store_env = dict(os.environ if env is None else env)
     if not store_env.get("TOWER_DYNAMODB_ENDPOINT") and store_env.get("DYNAMO_ENDPOINT"):
         store_env["TOWER_DYNAMODB_ENDPOINT"] = store_env["DYNAMO_ENDPOINT"]  # the compose/Makefile name
+    alerts: AlertsWatch = (
+        HttpAlerts(settings.alerts_internal_url, settings.alerts_internal_bearer)
+        if settings.alerts_internal_url
+        else RecordingAlerts()
+    )
     return Deps(
         settings=settings,
         store=Store.from_env(store_env),
@@ -68,6 +90,7 @@ def deps_from_env(env: Mapping[str, str] | None = None) -> Deps:
         carrier=carrier,
         audit_signer=signer_from_env(env),
         carrier_http=httpx.AsyncClient(timeout=5.0, follow_redirects=False),
+        alerts=alerts,
     )
 
 

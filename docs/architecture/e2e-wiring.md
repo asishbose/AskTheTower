@@ -40,6 +40,7 @@ Three libraries are shared as code, not called as services: **policy** (03), **c
 | Alerts → SNS → phone | SNS SMS | templated text, no number, no health words | the line's own number after a SIM swap |
 | Phone → Binding page | HTTPS over mobile data | single-use token; carrier auth-code redirect | a typed phone number |
 | Binding page → Gateway → carrier | as above | Number Verification `verify` | — |
+| Tower / Binding page → Alerts | HTTP, bearer `INTERNAL_BEARER` | `POST /internal/watch {line_id, watcher_user_id, enable, profile}` — Tower on `watch_line`; the page after a watch-settings save on an *enabled* Watch (04 §9.2) | a phone number, a contact id |
 
 ## 3. Path A — the request ("Alexa, is my line OK?")
 
@@ -47,7 +48,8 @@ Three libraries are shared as code, not called as services: **policy** (03), **c
  1. Alexa+ picks line_is_ok from the description; sends {line:"self"} + identity
  2. Tower: identity → user_id (401 if absent)
  3. Tower: consent.resolve(user_id, "self") → {bound, grant:"owner", line_id}       [1 DynamoDB read]
-       NOT_BOUND → return refusal with next_step.bind_line (binding URL); STOP
+       NOT_BOUND (only "self" with no Line) → return refusal with next_step.bind_line (binding URL); STOP
+       an alias with no grant → NO_CONSENT, next_step ask_consent, no bind token, no audit row (D18); STOP
  4. Tower: if a Watch exists and Watches.last_state.at is within 10 min → facts from it (no carrier call; audit source=watch)
     else Tower → Gateway (parallel, 300 ms each): sim_swap_check(line_id, 72h), call_forwarding(line_id)
  5. Gateway: Identity injects the carrier bearer; HTTPS to mock or sandbox
@@ -88,7 +90,7 @@ Alexa+ is not on this path at all. If Mom later asks her Alexa "is my line OK?",
  4. Carrier redirects back with a code; page → Gateway → number-verification/verify
  5. Carrier asserts the number; page stores Lines{line_id, owner_user_id, bound_at}
  6. Optional on the same page: grant `watch` or `reachability` to another user by invite code, with an alias; revoke any time
- 6b. Optional: choose the line's watch profile (self / transplant / care) and up to 3 contacts in order, from the active `watch` grantees (04 §9; "watch my line" then uses them)
+ 6b. Optional: choose the line's watch profile (self / transplant / care) and up to 3 contacts in order, from the active `watch` grantees (04 §9; "watch my line" then uses them). Saved on the line-holder's own Watch, audited `watch_line`/`binding`; if alerts are already on, the page asks Alerts to re-subscribe for the new profile (`/internal/watch`)
  7. Page → Alerts: if a Watch was created, subscribe to the carrier's SIM-swap (and reachability) events
 ```
 
@@ -103,7 +105,7 @@ The mock simulates step 3's network attribution with a client-id header (08 §3)
 | `ConsentView` | 04 | `{bound, grant, revoked_at}` + `line_id` |
 | `Outcome` | 03 | `ok \| changed \| refuse` + `reason_codes[]`; the audit additionally records `suppressed` |
 | `Watch` | 04/06 | `{line_id, watcher_user_id, profile, last_state, subscription_ids[], escalation[{user_id, requires_ack}], enabled}` |
-| `WatchSettings` | 04 §9 | `POST /me/lines/{line_id}/watch-settings {profile, contact_1..3}` → the owner's Watch `{profile, escalation}`; contacts are `user_id`s holding an active `watch` grant on the line, never numbers; audited `watch_line`/`binding` |
+| `WatchSettings` | 04 §9 | `POST /me/lines/{line_id}/watch-settings {profile, contact_1..3}` → the owner's Watch `{profile, escalation}`; contacts are `user_id`s holding an active `watch` grant on the line, never numbers; `requires_ack` true on every step but the last; audited `watch_line`/`binding`; enabled Watch → `POST /internal/watch {profile}` |
 | `AuditRecord` | 07 | `{line_id, ts, actor_user_id, tool, trigger, outcome, reason_codes, message_ref, policy_version, prev_hash}` |
 | `CarrierClient` | 05 | the protocol in 05 §1; two implementations, one test suite |
 | CAMARA payloads | 08 | the vendored specs; the mock serves `/openapi.json` to diff against them |
@@ -118,7 +120,7 @@ The mock simulates step 3's network attribution with a client-id header (08 §3)
 | Alerts | container, in-process scheduler, SMS → log | Lambda + EventBridge + SNS |
 | Binding | container; phone on the same Wi-Fi *simulates* mobile data via the client-id header | Lambda + API Gateway; real phone, Wi-Fi off |
 | Store | DynamoDB Local | DynamoDB |
-| Demo UI ([11](components/11-demo-ui.md)): demo tooling, laptop only, not built yet | compose container on `127.0.0.1:8090`; all four panes | not deployed: the same container on the laptop with `deploy/.env.aws`. Conversation, audit feed and the `next_step` QR code work. The mock's `/_admin` and the binding page's `/_admin` cannot be reached, so the carrier controls and macros are off. |
+| Demo UI ([11](components/11-demo-ui.md)): demo tooling, laptop only | compose container on `127.0.0.1:8090` (scripted agent), or `make showcase-ui` on the host (Bedrock); all four panes | not deployed: the same container on the laptop with `deploy/.env.aws`. Conversation, audit feed and the `next_step` QR code work. The mock's `/_admin` and the binding page's `/_admin` cannot be reached, so the carrier controls and macros are off (local-only by decision), and pane 1 is Asish only. |
 
 The component code is identical across the two columns; only wiring and hosting change. That is the claim the Helm charts exist to back. The demo UI sits outside every path in §3–§5. It is a client like the reference client, plus reads of `/_admin` and the audit, and it adds nothing to the hot path.
 

@@ -21,6 +21,10 @@ seed:
 dynamodb-local:
   enabled: false
 
+# Laptop-only tooling, never deployed to a cloud cluster (doc 11 §8.7): no ECR repository, no Terraform.
+demo-ui:
+  enabled: false
+
 # One internet-facing ALB for the three public paths (ingress group `ask-the-tower`), TLS from ACM, pods as IP
 # targets. Hosts may differ (tower., bind., hooks.) or be one name: group.order puts /mcp and /hooks before /.
 # The binding host must start with `bind.` — the mock's registry allows redirect URIs https://bind.* only.

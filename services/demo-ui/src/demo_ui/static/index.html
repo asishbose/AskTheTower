@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ask the Tower — control room</title>
+  <link rel="stylesheet" href="/static/demo-ui.css">
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/htmx-sse.js"></script>
+</head>
+<body hx-ext="sse" sse-connect="/events">
+  <header class="top">
+    <h1>Ask the Tower <small>control room</small></h1>
+    <div id="pill" hx-get="/fragment/pill" hx-trigger="load"></div>
+    <div id="run-status" sse-swap="status"></div>
+  </header>
+  <main class="grid">
+    <section class="pane" id="pane-conversation">
+      <h2>1 · Conversation</h2>
+      <div hx-get="/fragment/conversation-controls" hx-trigger="load"></div>
+      <div id="log" class="log" sse-swap="turn" hx-swap="afterbegin"></div>
+    </section>
+    <section class="pane" id="pane-carrier">
+      <h2>2 · Carrier controls <small>mock /_admin, simulation aid</small></h2>
+      <div hx-get="/fragment/carrier-controls" hx-trigger="load"></div>
+      <div id="carrier" sse-swap="carrier"><p class="muted">waiting for the feed…</p></div>
+    </section>
+    <section class="pane" id="pane-feed">
+      <h2>3 · Live feed</h2>
+      <h3>SMS sent by Alerts</h3>
+      <div id="sms" sse-swap="sms"><p class="muted">waiting for the feed…</p></div>
+      <h3>Audit (Asish's log and Mom's log, newest 50)</h3>
+      <div id="audit" sse-swap="audit"><p class="muted">waiting for the feed…</p></div>
+    </section>
+    <section class="pane" id="pane-binding">
+      <h2>4 · Binding</h2>
+      <div class="row">
+        <button hx-post="/binding/bind-link" hx-vals='{"who": "asish"}' hx-target="#qr">QR: bind Asish's line</button>
+        <button hx-post="/binding/bind-link" hx-vals='{"who": "mom"}' hx-target="#qr">QR: bind Mom's line</button>
+      </div>
+      <div class="row">
+        <button hx-post="/binding/grant" hx-vals='{"action": "revoke"}' hx-target="#binding-status">Mom revokes Asish's watch</button>
+        <button hx-post="/binding/grant" hx-vals='{"action": "grant"}' hx-target="#binding-status">Mom grants it again</button>
+      </div>
+      <div id="binding-status"></div>
+      <div id="qr" sse-swap="qr"></div>
+      <div id="grants" sse-swap="grants"><p class="muted">waiting for the feed…</p></div>
+    </section>
+  </main>
+  <footer>Demo tooling, laptop only. It decides nothing: outcome chips are Tower's reason codes. No phone number is shown.</footer>
+</body>
+</html>

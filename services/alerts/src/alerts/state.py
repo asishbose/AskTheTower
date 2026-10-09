@@ -10,7 +10,7 @@ bookkeeping that must not bump `at` lives here instead, one item per purpose:
 | `line#<line_id>` | `sink_token`, `subscription_ids`, `kinds`, `subs_at`, `last_event_at`, `misses` | never |
 | `evt#<digest>` | webhook dedupe: SHA-256(token, source, id) claimed with a conditional put | 7 days |
 | `rl#<line_id>#<watcher>#<code>` | rate-limit claim: one alert per (line, watcher, reason) per `RATE_LIMIT` | `RATE_LIMIT` |
-| `esc#<line_id>#<watcher>` | escalation in flight (06 §3): step, sent_at, codes, facts, acked, ack_ignored | 2 days |
+| `esc#<line_id>#<watcher>` | escalation in flight (06 §3): step, sent_at, codes, facts, acked, ack_ignored, `remaining` (the steps after the one texted, 06 §11.3) | 2 days |
 | `ack#<phone line_id>` | which escalation a reply from that phone acknowledges | 2 days |
 
 No key or value is a phone number: line ids are HMACs, digests are re-lettered `a`–`p`, tokens are letters.
@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-from tower_consent import Store
+from tower_consent import EscalationStep, Store
 from tower_consent.errors import ConditionFailed
 from tower_consent.models import format_ts
 from tower_consent.tables import Key, Table, create_table_kwargs
@@ -229,7 +229,12 @@ def claim_alert(
 
 
 class Escalation(BaseModel):
-    """One alert's walk down `watch.escalation` (06 §3)."""
+    """One alert's walk down `watch.escalation` (06 §3).
+
+    `remaining` is the snapshot taken when the chain parked: the steps after the one just texted (06 §11.3).
+    `tick` walks it, not the live chain, so a settings change cannot shift steps under an alert in flight.
+    `None` on rows parked before the snapshot existed (they fall back to `watch.escalation[step + 1:]`).
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -244,6 +249,7 @@ class Escalation(BaseModel):
     acked: bool = False
     ack_ignored: bool = False
     note_sent: bool = False
+    remaining: list[EscalationStep] | None = None
 
 
 def _esc_pk(line_id: str, watcher: str) -> str:

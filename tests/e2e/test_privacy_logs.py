@@ -52,7 +52,7 @@ def _local_secrets() -> dict[str, str]:
     if not env.exists():
         return {}
     keys = re.compile(
-        r"^(TOWER_BEARER|INTERNAL_BEARER|TOWER_LINE_ID_KEY|TOWER_MSISDN_KEY|SESSION_SECRET|MOCK_JWT_SECRET)=(.+)$"
+        r"^(TOWER_BEARER|INTERNAL_BEARER|TOWER_LINE_ID_KEY|TOWER_MSISDN_KEY|SESSION_SECRET|MOCK_JWT_SECRET|MOCK_ADMIN_TOKEN)=(.+)$"
     )
     return {
         m[1]: m[2] for line in env.read_text().splitlines() if (m := keys.match(line)) and len(m[2]) >= 16

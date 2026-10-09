@@ -21,18 +21,19 @@ from tower_consent.errors import (
 )
 from tower_consent.models import Grant, GrantKind, Line, format_ts, validate_alias
 from tower_consent.store import Store
-from tower_consent.watches import disable_watch
+from tower_consent.watches import disable_watch, remove_contact
 
 GRANTABLE: frozenset[str] = frozenset({"watch", "reachability"})
 
 
-def _owned_line(store: Store, line_id: str, acting_user_id: str) -> Line:
+def owned_line(store: Store, line_id: str, acting_user_id: str) -> Line:
+    """The line, if `acting_user_id` holds it. Grants, revokes and watch settings are the line-holder's alone."""
     item = store.get(T.LINES, {"line_id": line_id})
     if item is None:
         raise LineNotFound("no such line")
     line = Line.model_validate(item)
     if line.owner_user_id != acting_user_id:
-        raise NotLineOwner("only the line-holder can grant or revoke")
+        raise NotLineOwner("only the line-holder can change this line's grants or watch settings")
     return line
 
 
@@ -54,7 +55,7 @@ def grant(
     if kind not in GRANTABLE:
         raise NotGrantable("only 'watch' and 'reachability' can be granted")
     alias = validate_alias(alias)
-    line = _owned_line(store, line_id, granted_by)
+    line = owned_line(store, line_id, granted_by)
     if grantee_user_id == line.owner_user_id:
         raise GrantToSelf("the line-holder already owns this line")
 
@@ -96,8 +97,10 @@ def revoke(
     covers alerts (04 §3), so without it the Watch must stop. It is disabled, not deleted, right after
     `revoked_at` is set; the line-holder's own Watch and other grantees' Watches are untouched. If this second
     write fails, Alerts still ignores the Watch (it re-reads the grant, 06 §4) and drops the subscriptions.
+    It also removes the grantee from the line-holder's contact chain (04 §9.4); if that write fails, Alerts
+    skips the contact at send time (06 §11.2).
     """
-    _owned_line(store, line_id, revoked_by)
+    line = owned_line(store, line_id, revoked_by)
     try:
         item = store.update(
             T.GRANTS,
@@ -110,6 +113,7 @@ def revoke(
         raise GrantNotFound("no active grant to revoke") from None
     if kind == "watch":
         disable_watch(store, line_id, grantee_user_id)
+        remove_contact(store, line_id, line.owner_user_id, grantee_user_id)
     return Grant.model_validate(item)
 
 

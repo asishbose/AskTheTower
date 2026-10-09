@@ -11,7 +11,7 @@ GRYPE := $(if $(filter grype,$(SCANNER)),grype,docker run --rm $(DOCKER_SOCK) -v
 HAVE_IMAGE = docker image inspect ask-the-tower/$$s:latest >/dev/null 2>&1 || { echo "no image ask-the-tower/$$s:latest — run make build"; exit 2; }
 # build-% is a pattern rule, so it must stay out of .PHONY (make skips implicit-rule search for phony targets)
 .PHONY: build push sbom scan
-build: $(addprefix build-,$(SERVICES)) ## Build all five images (tagged with git sha and latest)
+build: $(addprefix build-,$(IMAGES)) ## Build all six images: the five services + demo-ui (tagged with git sha and latest; demo-ui is never pushed)
 build-%: ## Build one image, e.g. make build-tower-mcp
 	docker build -f services/$*/Dockerfile -t ask-the-tower/$*:$(GIT_SHA) -t ask-the-tower/$*:latest .
 push: ## Build linux/arm64 (buildx) and push to ECR, tags <git sha> + latest (ENV=eks|aws; `make ecr-up` once first)
@@ -20,12 +20,12 @@ push: ## Build linux/arm64 (buildx) and push to ECR, tags <git sha> + latest (EN
 	$(PY) scripts/push_images.py --env $(ENV) --tag $(GIT_SHA) && echo $(GIT_SHA) > artifacts/image-tag
 sbom: ## SBOM per image → artifacts/sbom/*.json (syft, CycloneDX)
 	@mkdir -p artifacts/sbom
-	@for s in $(SERVICES); do $(HAVE_IMAGE); \
+	@for s in $(IMAGES); do $(HAVE_IMAGE); \
 	  $(SYFT) ask-the-tower/$$s:latest -q -o cyclonedx-json > artifacts/sbom/$$s.json || exit 1; \
 	  echo "sbom → artifacts/sbom/$$s.json"; done
 scan: ## CVE scan per image → artifacts/scan/*.txt; fails on critical (grype, else trivy)
 	@mkdir -p artifacts/scan
-	@rc=0; for s in $(SERVICES); do $(HAVE_IMAGE); \
+	@rc=0; for s in $(IMAGES); do $(HAVE_IMAGE); \
 	  if [ "$(SCANNER)" = "trivy" ]; then trivy image -q --severity HIGH,CRITICAL ask-the-tower/$$s:latest > artifacts/scan/$$s.txt; \
 	    trivy image -q --exit-code 1 --severity CRITICAL ask-the-tower/$$s:latest >/dev/null; r=$$?; \
 	  else $(GRYPE) ask-the-tower/$$s:latest -q --fail-on critical > artifacts/scan/$$s.txt; r=$$?; fi; \

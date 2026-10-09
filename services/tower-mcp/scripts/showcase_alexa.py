@@ -76,8 +76,9 @@ def pick_utterances() -> dict[str, list[str]]:
 def script(mock: str, binding: str, asish_user: str) -> str:
     u = pick_utterances()
     post = "curl -s -X POST -H 'content-type: application/json'"
+    admin = f'{post} -H "Authorization: Bearer $MOCK_ADMIN_TOKEN"'  # G1: the mock's mutations need it
     mom_line = (
-        f"MOM=$(curl -s {mock}/_admin/state | python3 -c 'import json,sys; "
+        f"MOM=$(curl -s '{mock}/_admin/state?view=refs' | python3 -c 'import json,sys; "
         'print(next(m for m, l in json.load(sys.stdin)["lines"].items() '
         'if "phone-mom" in l.get("mobile_data_client_ids", [])))\')'
     )
@@ -92,7 +93,7 @@ def script(mock: str, binding: str, asish_user: str) -> str:
         "Record    : docs/architecture/alexa/simulator-run.md — what Alexa+ said, verbatim or paraphrased.",
         "",
         "A. Tool selection (§2.1). Before each: reset with",
-        f'     {post} {mock}/_admin/scenarios/load -d \'{{"name": "demo"}}\'',
+        f'     {admin} {mock}/_admin/scenarios/load -d \'{{"name": "demo"}}\'',
     ]
     n = 0
     for group in (*TOOLS, "off-topic", "ambiguous"):
@@ -108,18 +109,18 @@ def script(mock: str, binding: str, asish_user: str) -> str:
         "B. The three moments, as the deck phrases them (reset first, as above).",
         "   Moment 1",
         '     say  "Is my line OK?"                                   → OK',
-        f"     admin {post} {mock}/_admin/clock -d '{{\"advance_s\": 720}}'   # timeline: SIM swap",
+        f"     admin {admin} {mock}/_admin/clock -d '{{\"advance_s\": 720}}'   # timeline: SIM swap",
         '     say  "My phone just lost signal. Alexa, is my line OK?"  → SIM_SWAPPED_RECENT',
         "   Moment 2",
-        f"     admin {post} {mock}/_admin/clock -d '{{\"advance_s\": 480}}'   # timeline: cf_set",
+        f"     admin {admin} {mock}/_admin/clock -d '{{\"advance_s\": 480}}'   # timeline: cf_set",
         '     say  "Is anything forwarding my calls?"                  → SIM_SWAPPED_RECENT, CALL_FORWARDING_SET',
         "   Moment 3",
         '     say  "Is Mom\'s line OK?"                                 → OK ("as it was")',
         '     say  "Watch Mom\'s line for me."                          → watch on',
         f"     admin {mom_line}",
-        f'     admin {post} {mock}/_admin/lines/$MOM/events -d \'{{"event": "sim_swap"}}\'   # SMS line below',
+        f'     admin {admin} {mock}/_admin/lines/$MOM/events -d \'{{"event": "sim_swap"}}\'   # SMS line below',
         f"     admin {grant % 'revoke'}",
-        f'     admin {post} {mock}/_admin/lines/$MOM/events -d \'{{"event": "sim_swap"}}\'   # no SMS',
+        f'     admin {admin} {mock}/_admin/lines/$MOM/events -d \'{{"event": "sim_swap"}}\'   # no SMS',
         '     say  "Is Mom\'s line OK?"                                 → NO_CONSENT',
         f"     admin {grant % 'grant'}   # reset",
         "",
@@ -214,7 +215,7 @@ def load_compose_seed() -> ModuleType:
 
 def link(sub: str) -> int:
     import httpx
-    from tower_consent import Store, list_lines, tables
+    from tower_consent import list_lines, tables
     from tower_mcp.auth import safe_user_id
 
     os.environ.setdefault("MOCK_URL", "http://localhost:8443")
@@ -224,25 +225,22 @@ def link(sub: str) -> int:
     user = safe_user_id(sub)
     seed = load_compose_seed()
     seed.PEOPLE = ((user, "phone-asish"), ("user-mom", "phone-mom"))
-    seed.GRANT = {**seed.GRANT, "grantee_user_id": user}
     try:
         with (
-            httpx.Client(base_url=seed.MOCK_URL, timeout=15.0) as mock,
+            httpx.Client(base_url=seed.MOCK_URL, timeout=15.0, headers=seed.mock_admin_headers()) as mock,
             httpx.Client(base_url=seed.BINDING_URL, timeout=30.0, follow_redirects=False) as page,
         ):
             seed.wait_for(mock, "/healthz")
             seed.wait_for(page, "/healthz")
-            seed.ensure_tables_and_users()  # also creates the users in PEOPLE
-            env = dict(os.environ)
-            env.setdefault("TOWER_DYNAMODB_ENDPOINT", env["DYNAMO_ENDPOINT"])
-            store = Store.from_env(env)
+            store = seed.local_store()
+            seed.ensure_tables_and_users(store)  # also creates the users in PEOPLE
             moved = [ln.line_id for ln in list_lines(store, "user-asish")] if user != "user-asish" else []
             for line_id in moved:  # Asish's demo line changes holder: the linked Alexa identity is Asish now
                 store.delete(tables.LINES, {"line_id": line_id})
             seed.load_scenario(mock)
             for who, client_id in seed.PEOPLE:
                 seed.bind(page, who, client_id)
-            seed.grant(page)
+            seed.grant(page, "user-mom", user, "mom")
             for line in ("self", "mom"):
                 r = page.get("/_admin/resolve", params={"user": user, "line": line})
                 r.raise_for_status()

@@ -20,7 +20,10 @@ What it does:
   phone *is* the swapped line is texted.
 - **Escalation.** A chain step with `requires_ack` waits 15 min for "OK"/"CANCEL"; no reply → next step. A reply
   from a line within 24 h of its own SIM swap is ignored, audited `ACK_IGNORED_SWAPPED_LINE`, and the watcher's
-  next message says so.
+  next message says so (on the line-holder's own chain: the next contact's message, 06 §11.3).
+- **The line-holder's chain (06 §11).** On the owner's own Watch every contact's `watch` grant is re-read just
+  before their text (gone → `SUPPRESSED_REVOKED`, next step at once), each contact's SMS names the line by their
+  own alias, and a parked chain carries `remaining` (the steps still to go) so a settings change can't shift it.
 - **Failures.** A failed observation is never a change: `last_state` is kept, misses are counted, the 3rd
   consecutive miss writes one `CARRIER_ERROR` row. An SMS is retried once, then `ALERT_FAILED` and the next
   recipient. Subscriptions silent for more than TTL/2 are renewed by the poller; `subscription-ended` renews at once.
@@ -38,7 +41,8 @@ are decrypted only for the carrier call and the SMS send), or alert on the absen
 | `escalation.py` | `start_chain`, `tick`, `handle_reply` |
 | `subscriptions.py` | `subscribe` / `unsubscribe` / `watchdog`; sink URL per line and kind |
 | `hooks.py` | webhook receiver: vendored CloudEvents schema, token → line, dedupe |
-| `internal_api.py` | `POST /internal/watch` (Tower's `watch_line`), `POST /inbound/sms` (local reply relay) |
+| `internal_api.py` | `POST /internal/watch` (Tower's `watch_line`), `POST /inbound/sms` (local reply relay), `GET /internal/sent?after=<n>` (local mode only: the sent-SMS ledger, 06 §3.1; the demo UI's feed) |
+| `sent_log.py` | the local sent-SMS ledger: `{n, at, template, role, user_id, body}`, never a number |
 | `runner.py` | `process_line`, `poll`, `build_service` |
 | `handler.py` | Lambda entry: API Gateway, Scheduler `{profile}`, SNS inbound, direct `{"action": "watch"}` |
 | `local.py` | FastAPI app + in-process scheduler (`python -m alerts.local`) |

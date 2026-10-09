@@ -16,13 +16,15 @@ What the page does not do:
 | `GET /bind/{token}` | "Turn Wi-Fi off, tap Verify". No input fields. |
 | `POST /bind/{token}/verify` | Starts the carrier's auth-code flow. The OAuth `state` is signed with the token's `user_id`. |
 | `GET /bind/callback` | Exchanges the code, runs Number Verification (`phoneNumberShare`), consumes the token, calls `bind_line`, then shows "Line connected" and sets the page session. |
-| `GET /me` | My lines, grants I gave and received, and my invite code. |
+| `GET /me` | My lines, a **Watching** card per owned line (alerts on/off, read-only; profile by behaviour; up to three contacts in order from the line's active `watch` grantees), grants I gave and received, and my invite code. Never the word "transplant", never a number. |
+| `POST /me/lines/{line_id}/watch-settings` | `{profile, contact_1..3, csrf}`: the line-holder's profile and contacts (04 §9). Owner only (403); contacts need an active `watch` grant, no owner, no duplicates, at most three (422); `transplant`/`care` need a contact (422). One write on the owner's Watch, one audit row (`watch_line`/`binding`), and if alerts are on, `POST {ALERTS_INTERNAL_URL}/internal/watch` (failure swallowed). Store down → 503; audit failure → 500 with the settings kept. 303 → `/me`. |
 | `POST /me/invite` | A fresh invite code (8 letters, 24 h, single use). |
 | `POST /grants` | `{invite_code, kind, alias}` creates a grant on my line. An alias collision returns 409. |
-| `POST /grants/{id}/revoke` | Revokes a grant. Needs the page session and a CSRF token. Revoking `watch` also disables the grantee's Watch on the line (`tower_consent.revoke`); Alerts drops the line's subscriptions on its next poll (06 §4). |
+| `POST /grants/{id}/revoke` | Revokes a grant. Needs the page session and a CSRF token. Revoking `watch` also disables the grantee's Watch on the line and removes them from the line-holder's contact chain (`tower_consent.revoke`); Alerts drops the line's subscriptions on its next poll (06 §4). |
 | `GET /me/lines/{line_id}/audit` | The audit rows and chain status. Owner only; anyone else gets 403. |
 | `GET /_admin/tables`, `/_admin/resolve`, `POST /_admin/bind-tokens` | The showcase's admin view. Served only with `TOWER_ENV=local` and `BIND_ADMIN=1`; returns 404 otherwise. |
 | `POST /_admin/grants {owner_user_id, grantee_user_id, grant, alias, action}` | Local admin, same gate. Grants or revokes on the owner's only line, or on `line_id` if one is given, through the same `tower_consent.grant`/`revoke` that `/me` uses. It is idempotent and answers `{line_id, grantee_user_id, grant, active, changed}`. The compose seed and `ref-client demo` (moment 3) use it. |
+| `POST /_admin/watch-settings {owner_user_id, profile, contacts, line_id?, reset?}` | Local admin, same gate. The form's save path (same validation → 422, same audit row, same Alerts call); `reset: true` deletes the owner's Watch. `ref-client demo`'s transplant Settings step uses it. |
 | `GET /healthz` | `{"ok": true}` |
 
 **OAuth `state`.** `POST …/verify` makes a random nonce `n`. The browser goes to the carrier with `state = sign({u: user_id, n, exp +10 min})`. The bind token itself never leaves the site: it travels in an HttpOnly cookie `atb_flow = sign({t: token, n})` scoped to `/bind`. The callback requires both values with the same `n`, which ties the redirect to the browser that started the flow. It then consumes the token *for `u`*, so a token issued to another user is refused. The signatures are HMAC-SHA256 with `SESSION_SECRET`, re-lettered `a`–`p` so that no signed value can match the phone-number regex (`session.py`).
@@ -50,6 +52,7 @@ On AWS the same image runs as a Lambda container behind API Gateway (HTTP API). 
 | `SESSION_SECRET` | required, at least 16 chars | HMAC key for the OAuth state, the flow cookie, the session cookie and CSRF tokens. |
 | `SESSION_TTL_S` | `1800` | Page session lifetime. The session is set by a successful bind. |
 | `BIND_ADMIN` | off | `1` serves `/_admin/*`, but only when `TOWER_ENV=local`. |
+| `ALERTS_INTERNAL_URL`, `ALERTS_INTERNAL_BEARER` | unset | Alerts' `POST /internal/watch`, called after a watch-settings save on an enabled Watch. Unset → a log-only stub; the Alerts polls still find the Watch. |
 | `PORT`, `HOST`, `LOG_LEVEL` | `8081`, `0.0.0.0`, `info` | uvicorn. Access logs are off because paths carry bind tokens. |
 | `TOWER_DYNAMODB_ENDPOINT` (alias `DYNAMO_ENDPOINT`), `TOWER_TABLE_PREFIX`, `AWS_REGION` | unset | The consent and audit store. Leave the endpoint unset on AWS. |
 | `TOWER_LINE_ID_KEY`, `TOWER_MSISDN_KEY` (local) / `TOWER_KMS_HMAC_KEY_ID`, `TOWER_KMS_KEY_ID` (AWS) | | `line_id` HMAC, `msisdn_enc`, and the audit-trim signer. |

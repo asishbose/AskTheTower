@@ -17,6 +17,7 @@ CallForwarding = Literal["none", "unconditional", "conditional", "unknown"]
 Connectivity = Literal["DATA", "SMS", "NONE", "UNKNOWN"]
 GrantKind = Literal["watch", "reachability"]
 Source = Literal["carrier", "watch"]
+WatchProfile = Literal["self", "transplant", "care"]
 
 
 class _Shape(BaseModel):
@@ -68,15 +69,17 @@ class RecentChecksFact(_Shape):
 
 
 class WatchFacts(_Shape):
-    """`watch_line` (02 §2): `{watching, since, notify_via, grants, recent_checks}`.
+    """`watch_line` (02 §2): `{watching, since, notify_via, profile, grants, recent_checks}`.
 
-    `grants` and `recent_checks` are the line-holder's view only (07 §4: a watcher never reads who else
-    checked the line they watch); for a grantee they are empty / null."""
+    `profile` is the caller's stored Watch profile, also while watching is off; null with no Watch (06 §11.1).
+    The contacts behind it never appear here. `grants` and `recent_checks` are the line-holder's view only
+    (07 §4: a watcher never reads who else checked the line they watch); for a grantee they are empty / null."""
 
     line: str
     watching: bool | None = None
     since: AwareDatetime | None = None
     notify_via: Literal["sms"] | None = None
+    profile: WatchProfile | None = None
     grants: list[GrantFact] = Field(default_factory=list)
     recent_checks: RecentChecksFact | None = None
 

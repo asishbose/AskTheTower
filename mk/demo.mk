@@ -1,5 +1,5 @@
 ##@ Demo and showcase
-SHOWCASES := mock policy-table binding tower gateway alerts audit ref alexa infra
+SHOWCASES := mock policy-table binding tower gateway alerts audit ref alexa infra ui
 .PHONY: demo corpus policy-table showcase showcase-artifacts $(addprefix showcase-,$(SHOWCASES))
 # SHOWCASE_ARGS passes flags to one showcase script (e.g. --print-only, --fast); DEMO_ARGS to `ref-client demo`.
 # Local: the reference client runs on the host with uv when present, else in its container (Docker only).
@@ -35,6 +35,11 @@ showcase-audit: require-env ## Audit: Mom's view, chain verified, tamper detecti
 	$(PY) packages/tower-audit/scripts/showcase.py --env $(ENV) $(SHOWCASE_ARGS)
 showcase-ref: require-env ## Reference client: three moments from the terminal, then the corpus
 	$(UV) run ref-client demo --env $(ENV) && $(MAKE) corpus
+showcase-ui: require-env ## Demo control room on the host at 127.0.0.1:8090 (needs make up): Bedrock when credentials resolve, else scripted
+	@echo "showcase-ui: http://127.0.0.1:8090 — the pill shows the agent mode and ENV=$(ENV); Ctrl-C to stop"
+	@ALERTS_INTERNAL_BEARER="$$(sed -n 's/^INTERNAL_BEARER=//p' $(COMPOSE_ENV_FILE) 2>/dev/null)" \
+	  REF_AGENT="$${REF_AGENT:-auto}" DEMO_UI_HOST=127.0.0.1 DEMO_UI_PORT=8090 \
+	  $(if $(filter local,$(ENV)),,MOCK_URL= ALERTS_URL= DYNAMO_ENDPOINT=) $(UV) run demo-ui
 showcase-alexa: ## Alexa+ simulator script and Tower log tail
 	$(PY) services/tower-mcp/scripts/showcase_alexa.py $(SHOWCASE_ARGS)
 showcase-infra: ## Clean-machine timing; terraform plan; teardown

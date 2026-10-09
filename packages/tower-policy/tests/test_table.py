@@ -23,6 +23,7 @@ from tower_policy import (
     evaluate_reachability,
     policy_version,
 )
+from tower_policy.phrasing import TEMPLATES
 
 pytestmark = pytest.mark.unit
 
@@ -299,6 +300,18 @@ def render_markdown(rows: list[Row], t: Thresholds) -> str:
                 f"| {r.bound} | {r.grant} | {sim_label[r.sim]} | {r.fwd} | {reach_label[r.reach]} | {r.age} "
                 f"| `{_fmt(r.line)}` | `{_fmt(r.reachability)}` |"
             )
+    stale = [r for r in rows if r.line.reason_codes == [ReasonCode.STALE_DATA]]
+    out += [
+        "",
+        "## STALE_DATA wording",
+        "",
+        f"All {len(stale)} `refuse · STALE_DATA` rows above and below use one neutral sentence, whatever the "
+        "last-known facts held — a swap or forwarding included (03 §4; code-vs-docs D5). `{time}` is when the last "
+        "answer was fetched:",
+        "",
+        f"- voice: “{TEMPLATES[ReasonCode.STALE_DATA]['voice']}”",
+        f"- sms: “{TEMPLATES[ReasonCode.STALE_DATA]['sms']}”",
+    ]
     header = [
         "",
         "| bound | grant | sim_swapped | call_forwarding | reachable | fetched_at | line_is_ok | is_reachable |",

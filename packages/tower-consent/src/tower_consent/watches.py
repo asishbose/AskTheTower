@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from tower_consent import tables as T
 from tower_consent.errors import ConditionFailed, WatchNotFound
-from tower_consent.models import LastState, Profile, Watch
+from tower_consent.models import EscalationStep, LastState, Profile, Watch
 from tower_consent.store import Store
+
+
+def chain_of(contacts: list[str]) -> list[EscalationStep]:
+    """Ordered contacts → `escalation[]`. `requires_ack` is derived, never chosen (04 §9.1): true on every step
+    that has a successor (the next person is texted if this one doesn't reply), false on the last."""
+    last = len(contacts) - 1
+    return [EscalationStep(user_id=u, requires_ack=i < last) for i, u in enumerate(contacts)]
 
 
 def upsert_watch(store: Store, watch: Watch) -> Watch:
@@ -71,6 +78,33 @@ def disable_watch(store: Store, line_id: str, watcher_user_id: str) -> bool:
     except ConditionFailed:
         return False
     return True
+
+
+def remove_contact(store: Store, line_id: str, watcher_user_id: str, contact_user_id: str) -> bool:
+    """Drop one contact from a Watch's chain and re-derive `requires_ack` (04 §9.4). False if not in it.
+
+    Called by `grants.revoke` for the line-holder's Watch when a contact's `watch` grant is revoked. Only
+    `escalation` is written: `enabled`, `profile` and `last_state` stay as they are.
+    """
+    watch = get_watch(store, line_id, watcher_user_id)
+    if watch is None or contact_user_id not in {s.user_id for s in watch.escalation}:
+        return False
+    remaining = [s.user_id for s in watch.escalation if s.user_id != contact_user_id]
+    store.update(
+        T.WATCHES,
+        {"line_id": line_id, "watcher_user_id": watcher_user_id},
+        "SET #esc = :esc",
+        condition="attribute_exists(line_id)",
+        names={"#esc": "escalation"},
+        values={":esc": [s.to_item() for s in chain_of(remaining)]},
+    )
+    return True
+
+
+def delete_watch(store: Store, line_id: str, watcher_user_id: str) -> bool:
+    """Delete one Watch row (the local-only demo reset, 04 §9.2). False if there was none."""
+    old = store.delete(T.WATCHES, {"line_id": line_id, "watcher_user_id": watcher_user_id})
+    return old is not None
 
 
 def update_last_state(store: Store, line_id: str, watcher_user_id: str, state: LastState) -> bool:
