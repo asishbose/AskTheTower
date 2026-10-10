@@ -50,7 +50,7 @@ On AWS the same image runs as a Lambda container behind API Gateway (HTTP API). 
 | `BASE_URL` | `http://localhost:8081` | Public base URL of the page, used for links and the QR code. |
 | `BIND_REDIRECT_URI` | `<BASE_URL>/bind/callback` | The OAuth redirect URI registered with the carrier. The mock accepts `http://localhost…`. |
 | `SESSION_SECRET` | required, at least 16 chars | HMAC key for the OAuth state, the flow cookie, the session cookie and CSRF tokens. |
-| `SESSION_TTL_S` | `1800` | Page session lifetime. The session is set by a successful bind. |
+| `SESSION_TTL_S` | `1800` | Page session lifetime (cookie `Max-Age` and the signed expiry). The session is set by a successful bind. On AWS, Terraform `binding_session_ttl_s` sets `86400` (24 h, D-H) so the line-holder can come back to revoke during the demo day (04 §6). |
 | `BIND_ADMIN` | off | `1` serves `/_admin/*`, but only when `TOWER_ENV=local`. |
 | `ALERTS_INTERNAL_URL`, `ALERTS_INTERNAL_BEARER` | unset | Alerts' `POST /internal/watch`, called after a watch-settings save on an enabled Watch. Unset → a log-only stub; the Alerts polls still find the Watch. |
 | `PORT`, `HOST`, `LOG_LEVEL` | `8081`, `0.0.0.0`, `info` | uvicorn. Access logs are off because paths carry bind tokens. |

@@ -24,8 +24,51 @@ output "tower_log_group" {
   value = module.agentcore_runtime.log_group_name
 }
 
-output "ref_client_runtime_arn" {
-  value = module.agentcore_runtime.ref_client_runtime_arn
+output "agent_runtime_arn" {
+  description = "The web chat agent runtime (protocol HTTP); empty with enable_web_chat = false."
+  value       = module.agentcore_runtime.agent_runtime_arn
+}
+
+# --- web chat (09 §6): read by `make web-chat-sync`, `make web-chat-url` and scripts/cognito_user.py ------------
+
+output "cognito_pool_id" {
+  value = module.cognito.pool_id
+}
+
+output "cognito_client_id" {
+  description = "The web-chat app client (PKCE, no secret)."
+  value       = module.cognito.client_id
+}
+
+output "cognito_issuer" {
+  value = module.cognito.issuer
+}
+
+output "cognito_jwks_url" {
+  value = module.cognito.jwks_url
+}
+
+output "cognito_hosted_ui_url" {
+  description = "The page's COGNITO_DOMAIN."
+  value       = module.cognito.hosted_ui_url
+}
+
+output "web_chat_url" {
+  description = "The page (CloudFront); also the Hosted UI callback URL and the page's REDIRECT_URI."
+  value       = var.enable_web_chat ? module.web_chat[0].page_url : ""
+}
+
+output "web_chat_bucket" {
+  value = var.enable_web_chat ? module.web_chat[0].bucket : ""
+}
+
+output "web_chat_distribution_id" {
+  value = var.enable_web_chat ? module.web_chat[0].distribution_id : ""
+}
+
+output "agent_url" {
+  description = "The page's AGENT_URL: the Lambda function URL proxy + /invocations."
+  value       = var.enable_web_chat ? module.web_chat[0].agent_url : ""
 }
 
 output "binding_url" {

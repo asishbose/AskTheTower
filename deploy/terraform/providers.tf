@@ -13,6 +13,11 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    archive = {
+      # zips the web chat proxy (services/web-chat/proxy/handler.py) for modules/web_chat
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 

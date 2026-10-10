@@ -87,3 +87,8 @@ alerts:
 
 ref-client:
   envName: eks
+  web:
+    enabled: true            # the web chat agent only (no page, no stub): ClusterIP
+    env:
+      TOWER_ENV: aws
+      WEB_CHAT_DIR: ""

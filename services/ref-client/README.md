@@ -13,6 +13,8 @@ from their descriptions, and writes transcripts. Three jobs:
    checks the model picked the expected tool and arguments. A miss is a description bug.
 3. **The one place a model sits** — `src/ref_client/agent.py` is the only language-model call in the repository
    (`tests/test_only_llm_call.py` greps for any other).
+4. **The web chat page's agent** — `ref-client serve` (the image's default command) exposes the same agent over
+   HTTP behind `services/web-chat` (see [As the web chat page](#as-the-web-chat-page)).
 
 What it doesn't do: hold carrier credentials, touch DynamoDB, or decide policy. Nothing in the system depends on
 it (`tests/test_fallback.py`).
@@ -26,7 +28,10 @@ it (`tests/test_fallback.py`).
 | `src/ref_client/demo.py` | the four stories (showcase order §4 steps 4–7) and the mock / grant controls |
 | `src/ref_client/transcript.py` | transcript shape, E.164 redaction before write, `invented_digits`, `compare(golden, transcript)` |
 | `src/ref_client/corpus_runner.py` | load the corpus, score, markdown table, `CORPUS_MIN_PASS` gate |
-| `src/ref_client/run.py` | the CLI |
+| `src/ref_client/run.py` | the CLI (`say`, `demo`, `corpus`, `serve`) |
+| `src/ref_client/http.py` | the HTTP app behind the web chat page: `POST /invocations`, `/ping`, `/healthz`, local `/config.js`, the page at `/` (09 §6) |
+| `src/ref_client/auth.py` | bearer extraction and pass-through (verification is Tower's) |
+| `src/ref_client/phrasebook.py` | the scripted agent's exact-phrase lookup for free text (demo lines + corpus) |
 | `src/ref_client/voice.py` | optional mic → whisper → agent → Polly → speaker, behind `REF_VOICE=1` |
 | `prompts/ref-client/system.md` | the system prompt (one role, one file) |
 | `corpus/phrasings.yaml` | the phrasing corpus |
@@ -79,6 +84,11 @@ the mock's scenario reset, and Tower's stored-state path would answer from it.
 | `CORPUS_MIN_PASS` | `0.9` | corpus gate |
 | `REF_ARTIFACTS_DIR` | `artifacts` | where transcripts / corpus.md go |
 | `REF_SYSTEM_PROMPT`, `REF_CORPUS` | packaged files | override the prompt / corpus path |
+| `REF_CLIENT_HTTP_PORT` | `8080` | `serve`: listen port (AgentCore Runtime requires 8080; compose publishes `127.0.0.1:8083`) |
+| `TOWER_ENV` | `local` | `serve`: `local` forwards `X-Tower-User` and serves `/config.js` (the sign-in stub, with `TOWER_BEARER`); anything else does neither |
+| `WEB_CHAT_BINDING_BASE_URL` | — | `serve`: a `bind_line` URL outside `<this>/bind/` → `next_step: null` + `NEXT_STEP_REJECTED` |
+| `WEB_CHAT_DIR` | — | `serve`: serve the page from this folder at `/` (compose: `/app/web-chat` in the image) |
+| `TOWER_TIMEOUT_S` | `10` | Tower call timeout |
 
 **Cost.** Nova Micro on demand lists at $0.035 per million input tokens and $0.14 per million output tokens (us-east-1; not re-verified in the autonomous build). One model
 demo run is about nine utterances × two Converse calls × ~1.2 k input tokens ≈ 22 k input + ~1 k output tokens,
@@ -101,10 +111,52 @@ are the evidence a judge can read without a device.
 | `test_fallback.py` | unit + integration | Bedrock unreachable → clear error; Tower unaffected; nothing imports `ref_client` |
 | `test_only_llm_call.py` | unit | no other model call in the repo |
 | `test_demo_control.py` | unit | grant admin contract; CLI exit codes |
+| `test_http.py` | unit + integration | 09 §6.2: 401 before any model/Tower call; bearer byte for byte to a real in-process Tower; `X-Tower-User` only locally; `next_step` verbatim, never from model text; foreign URL → `NEXT_STEP_REJECTED`; 401/502/503 mapping; privacy sweep over responses and logs |
+| `test_auth_and_phrasebook.py` | unit | the bearer rule; the scripted lookup covers every demo line |
 
 `REF_TRANSCRIPTS_WRITE=1 uv run pytest services/ref-client/tests/test_transcripts.py` rewrites
 `artifacts/transcripts/*.json`. `REF_DDB_BACKEND=moto|local` picks the DynamoDB (default: DynamoDB Local when
 `docker info` works, else moto).
+
+## As the web chat page
+
+The Alexa+ stand-in for the AWS demo (09 §6; flows in `docs/architecture/bind-and-alert-flows.md`). The same
+agent, prompt and Tower tools, over HTTP, with `services/web-chat` in front.
+
+```
+POST /invocations   Authorization: Bearer <token>   {"input": "<1–500 chars>", "session_id": "<[A-Za-z0-9-]{33,128}>"}
+  → 200 {"text": "...", "next_step": {...} | null, "tool_calls": [{"name": "...", "reason_codes": ["..."]}]}
+  → 401 unauthorized (no/malformed bearer — before any model call — or Tower refused it)
+  → 422 invalid_request | no_numbers (a phone-number-shaped run in the input; it never reaches the model or a log)
+  → 502 tower_unavailable · 503 agent_unavailable
+GET /ping → {"status": "Healthy"}   GET /healthz → {"status": "ok"}   GET /config.js (TOWER_ENV=local only)
+```
+
+The rules, in order (09 §6.2): refuse an anonymous request; validate; forward the caller's `Authorization` header
+to Tower byte for byte (`X-Tower-User` too, locally only); `next_step` = the last non-`none` tool result's, copied
+verbatim — never from model text; drop a `bind_line` outside `WEB_CHAT_BINDING_BASE_URL/bind/` and any step
+carrying a phone-number-shaped value (logged `NEXT_STEP_REJECTED`, without the URL); one JSON log line per request
+(hash of the session id, tools, reason codes, status, latency — never the input, reply, token or a number).
+
+**Agent.** `REF_AGENT=bedrock` lets the model choose the tool. `scripted` (and `auto` without AWS credentials, as in
+compose) looks the sentence up in `phrasebook.py` — the demo lines and the corpus, exact phrase after lower-casing
+and dropping punctuation — and reads `summary` verbatim; an unknown sentence gets no tool call and says so.
+
+**Local run.** `make up` starts the compose service `web-chat` (this image, `serve`, `127.0.0.1:8083 → 8080`,
+`WEB_CHAT_DIR=/app/web-chat`); `make web-chat` opens it. On the host instead:
+
+```bash
+TOWER_URL=http://localhost:8080/mcp TOWER_BEARER=$(sed -n 's/^TOWER_BEARER=//p' deploy/compose/.env) \
+  WEB_CHAT_BINDING_BASE_URL=http://localhost:8081 WEB_CHAT_DIR=services/web-chat REF_CLIENT_HTTP_PORT=8083 \
+  uv run ref-client serve      # Bedrock when AWS credentials resolve
+```
+
+**AWS run.** Terraform runs this image as a second AgentCore Runtime (`aws_bedrockagentcore_agent_runtime.ref_client`,
+protocol HTTP, its own role: Bedrock invoke, logs, ECR pull) with `TOWER_URL` = Tower's invocation URL,
+`TOWER_ENV=aws`, `REF_AGENT=bedrock`, `WEB_CHAT_BINDING_BASE_URL` = the binding page, a Cognito JWT authorizer
+and `Authorization` allow-listed. The page reaches it through the Lambda URL proxy (`services/web-chat/proxy/`).
+Order: `deployment-agentcore.md` step 10 (`make cognito-users` → `make seed-aws` → `make web-chat-sync` →
+`make web-chat-url`).
 
 ## As a library (the demo UI)
 

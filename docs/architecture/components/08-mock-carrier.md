@@ -94,7 +94,7 @@ The whole `/_admin` surface is mounted only when `MOCK_ADMIN=1`.
 - **One simulation at a time.** With the flag on, an authorize request that *also* carries `X-Mock-Client-Id` (which is what the binding page's `?as=` sends with `TOWER_ENV=local`) is refused: 400 `invalid_request`, "one simulation at a time". The two simulations never combine.
 - An unknown `MOCK_ASSUME_CLIENT_ID` (no line has it) fails at startup, not at bind time.
 - Set to `1` only on the Fargate task (Terraform `mock_assume_mobile_data`, default `true` while the backend is the mock). Compose, kind and the tests keep `0`. A real carrier or sandbox ignores all of this (rule 6).
-- Tests: `services/mock-carrier/tests/test_assume_mobile_data.py`. Default off → 403 without the header, as above. On → authorize succeeds without `X-Mock-Client-Id`, and `phoneNumberShare` returns that line. On + header → 400. On + unknown client id → startup error.
+- Tests: `services/mock-carrier/tests/test_assume_mobile_data.py`. Default off → 403 without the header, as above. On → authorize succeeds without `X-Mock-Client-Id`, and `phoneNumberShare` returns that line. On + header → 400. On + unknown client id → startup error. End to end with the binding page in AWS mode: `services/binding-page/tests/test_assumed_mobile_data_bind.py`. (Integration marker, not unit: they run the mock in-process over ASGI.)
 
 ## 4. Subscriptions and webhooks
 

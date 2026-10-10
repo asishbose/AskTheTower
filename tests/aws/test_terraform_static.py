@@ -35,6 +35,8 @@ MODULES = [
     "scheduler",
     "sns",
     "observability",
+    "cognito",
+    "web_chat",
 ]
 TF_FILES = sorted(p for p in TF.rglob("*.tf") if ".terraform" not in p.parts)
 
@@ -287,3 +289,94 @@ def test_demo_ui_is_never_deployed_to_aws() -> None:
     )
     deps = yaml.safe_load((helm / "umbrella" / "Chart.yaml").read_text(encoding="utf-8"))["dependencies"]
     assert next(d for d in deps if d["name"] == "demo-ui")["condition"] == "demo-ui.enabled"
+
+
+@pytest.mark.unit
+def test_web_chat_names_match_deployment_agentcore_section_1() -> None:
+    """deployment-agentcore.md §1 "Web chat — Terraform names" (prompt 20) is the contract for these names."""
+    variables = (TF / "variables.tf").read_text()
+    for name, default in [
+        ("enable_web_chat", "true"),
+        ("cognito_domain_prefix", '""'),
+        ("mock_assume_mobile_data", "true"),
+        ("binding_session_ttl_s", "86400"),
+    ]:
+        block = variables.split(f'variable "{name}" {{', 1)[1].split("\n}\n", 1)[0]
+        assert re.search(rf"default\s*=\s*{re.escape(default)}\s*$", block, re.M), name
+    assert 'variable "enable_ref_client_runtime"' not in variables  # replaced by enable_web_chat
+    outputs = (TF / "outputs.tf").read_text()
+    for name in (
+        "cognito_pool_id",
+        "cognito_client_id",
+        "cognito_issuer",
+        "cognito_jwks_url",
+        "cognito_hosted_ui_url",
+        "web_chat_url",
+        "web_chat_bucket",
+        "web_chat_distribution_id",
+        "agent_url",
+        "agent_runtime_arn",
+    ):
+        assert f'output "{name}"' in outputs, name
+    assert 'output "ref_client_runtime_arn"' not in outputs
+    cognito = (TF / "modules" / "cognito" / "outputs.tf").read_text()
+    for name in ("pool_id", "client_id", "issuer", "jwks_url", "discovery_url", "hosted_ui_url"):
+        assert f'output "{name}"' in cognito, name
+    web = (TF / "modules" / "web_chat" / "outputs.tf").read_text()
+    for name in ("page_url", "agent_url", "bucket", "distribution_id"):
+        assert f'output "{name}"' in web, name
+    example = (TF / "envs" / "aws.tfvars.example").read_text()
+    for name in (
+        "enable_web_chat",
+        "cognito_domain_prefix",
+        "mock_assume_mobile_data",
+        "binding_session_ttl_s",
+    ):
+        assert re.search(rf"^{name}\s*=", example, re.M), name
+
+
+@pytest.mark.unit
+def test_cognito_client_is_pkce_without_a_secret() -> None:
+    main = (TF / "modules" / "cognito" / "main.tf").read_text()
+    assert "generate_secret                      = false" in main
+    assert '["code"]' in main and '["openid"]' in main
+    assert "allow_admin_create_user_only = true" in main
+    root = (TF / "main.tf").read_text()
+    # Tower's env and both authorizers come from the pool unless overridden; the web-chat client is always allowed
+    assert "module.cognito.jwks_url" in root and "module.cognito.issuer" in root
+    assert "concat([module.cognito.client_id], var.tower_jwt_allowed_clients)" in root
+    assert 'TOWER_JWT_CLIENT_IDS   = join(",", local.jwt_clients)' in root
+
+
+@pytest.mark.unit
+def test_agent_runtime_has_its_own_narrow_role_and_tower_url() -> None:
+    """C5 / 09 §5: the agent never reads tables, keys or the Gateway; its env names Tower as TOWER_URL."""
+    main = (TF / "modules" / "agentcore_runtime" / "main.tf").read_text()
+    agent_policy = main.split('data "aws_iam_policy_document" "agent" {', 1)[1].split('\nresource "', 1)[0]
+    assert "dynamodb:" not in agent_policy and "kms:" not in agent_policy
+    assert "InvokeGateway" not in agent_policy and "bedrock:InvokeModel" in agent_policy
+    runtime = main.split('resource "aws_bedrockagentcore_agent_runtime" "ref_client" {', 1)[1]
+    assert "role_arn           = aws_iam_role.agent[0].arn" in runtime
+    assert 'server_protocol = "HTTP"' in runtime and 'request_header_allowlist = ["Authorization"]' in runtime
+    assert "TOWER_URL " in runtime and "TOWER_MCP_URL" not in main
+    assert 'REF_AGENT                 = "bedrock"' in runtime
+    tower_policy = main.split('data "aws_iam_policy_document" "runtime" {', 1)[1].split('\nresource "', 1)[0]
+    assert "bedrock:InvokeModel" not in tower_policy  # Tower's role has no model access (rule 1)
+
+
+@pytest.mark.unit
+def test_web_chat_module_shape() -> None:
+    main = (TF / "modules" / "web_chat" / "main.tf").read_text()
+    assert "block_public_policy     = true" in main and "restrict_public_buckets = true" in main
+    assert 'resource "aws_cloudfront_origin_access_control" "page"' in main
+    assert 'default_root_object = "index.html"' in main
+    assert 'authorization_type = "NONE"' in main and "allow_origins = [local.page_origin]" in main
+    assert (
+        'allow_headers = ["authorization", "content-type", "x-amzn-bedrock-agentcore-runtime-session-id"]'
+        in main
+    )
+    assert "AGENT_INVOKE_URL = var.agent_invoke_url" in main
+    assert 'runtime          = "python3.12"' in main and '["arm64"]' in main
+    mock = (TF / "modules" / "mock_carrier" / "main.tf").read_text()
+    assert "MOCK_ASSUME_MOBILE_DATA" in mock and "MOCK_ASSUME_CLIENT_ID" in mock
+    assert "SESSION_TTL_S          = tostring(var.binding_session_ttl_s)" in (TF / "main.tf").read_text()

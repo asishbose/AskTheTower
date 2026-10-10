@@ -235,35 +235,54 @@ variable "mock_scenario" {
 
 variable "tower_jwt_discovery_url" {
   description = <<-EOT
-    OIDC discovery URL of the identity provider that issues the Alexa+ / reference-client bearer (spike A:
-    bearer JWT, user_id = sub). Empty = Runtime's default IAM (SigV4) inbound auth, for the reference client only.
+    Override: OIDC discovery URL of a hand-made identity provider. Empty (default) = the Terraform Cognito pool
+    (modules/cognito), which both Runtime authorizers use (01 §4, D-A).
   EOT
   type        = string
   default     = ""
 }
 
 variable "tower_jwt_allowed_audience" {
-  description = "Allowed `aud` values for the inbound JWT."
+  description = "Allowed `aud` values for the inbound JWT. Leave empty for Cognito access tokens (they carry no `aud`)."
   type        = list(string)
   default     = []
 }
 
 variable "tower_jwt_allowed_clients" {
-  description = "Allowed `client_id` values for the inbound JWT."
+  description = <<-EOT
+    Additional allowed `client_id` values (e.g. the Alexa account-linking client, registration.md §2). Tower and
+    both Runtime authorizers always accept the Terraform `web-chat` client as well.
+  EOT
   type        = list(string)
   default     = []
 }
 
 variable "tower_jwks_url" {
-  description = "TOWER_JWKS_URL: Tower verifies the bearer itself as well (defence in depth; 01 §4)."
+  description = "Override for TOWER_JWKS_URL; empty = the Cognito pool's JWKS (Tower verifies the bearer itself too)."
   type        = string
   default     = ""
 }
 
 variable "tower_jwt_issuer" {
-  description = "TOWER_JWT_ISSUER."
+  description = "Override for TOWER_JWT_ISSUER; empty = the Cognito pool's issuer."
   type        = string
   default     = ""
+}
+
+variable "mock_assume_mobile_data" {
+  description = <<-EOT
+    MOCK_ASSUME_MOBILE_DATA=1 and MOCK_ASSUME_CLIENT_ID=phone-asish on the Fargate mock (08 §3, D-G): the task
+    cannot see the phone's network, so binding against the mock assumes that phone is on mobile data. A
+    simulation aid; ignored with carrier_backend = "sandbox".
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "binding_session_ttl_s" {
+  description = "SESSION_TTL_S of the binding page on AWS (04 §6, D-H): 24 h so the line-holder can come back to revoke."
+  type        = number
+  default     = 86400
 }
 
 variable "tower_timezone" {
@@ -272,14 +291,23 @@ variable "tower_timezone" {
   default     = "America/Toronto"
 }
 
-variable "enable_ref_client_runtime" {
-  description = "Also host the reference client as a second Runtime agent (the Strands-on-Bedrock showcase)."
+variable "enable_web_chat" {
+  description = <<-EOT
+    The web chat page (09 §6): the reference client as a second Runtime (HTTP, its own role), the page on S3 +
+    CloudFront and a Lambda URL proxy in front of the agent. The Cognito pool is created either way (free tier).
+  EOT
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "cognito_domain_prefix" {
+  description = "Hosted UI domain prefix (global across AWS). Empty = <name_prefix>-<environment>-<6 random hex>."
+  type        = string
+  default     = ""
 }
 
 variable "bedrock_model_id" {
-  description = "BEDROCK_MODEL_ID for the optional reference-client runtime."
+  description = "BEDROCK_MODEL_ID for the web chat agent runtime."
   type        = string
   default     = "amazon.nova-micro-v1:0"
 }

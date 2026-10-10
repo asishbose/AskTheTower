@@ -1,5 +1,6 @@
-# ref-client — the CLI image (ENTRYPOINT ref-client). Bedrock (BEDROCK_MODEL_ID) through IRSA on EKS; with no AWS
-# credentials REF_AGENT=auto falls back to the scripted agent.
+# ref-client — one image, ENTRYPOINT ref-client: the default command `serve` is the web chat agent's HTTP app (09 §6),
+# `demo` / `say` / `corpus` the CLI. Bedrock (BEDROCK_MODEL_ID) through IRSA on EKS; with no AWS credentials
+# REF_AGENT=auto falls back to the scripted agent.
 image:
   registry: ""
   repository: ask-the-tower/ref-client
@@ -31,6 +32,26 @@ job:
 # Optional long-running toolbox: `kubectl exec deploy/ref-client -- ref-client say "..."`.
 deployment:
   enabled: false
+
+# The web chat agent (09 §6): Deployment + ClusterIP Service `ref-client-web` on 8080 (templates/web.yaml).
+# kubectl -n ask-the-tower port-forward svc/ref-client-web 8083:8080 → http://127.0.0.1:8083/
+# Its env is `env` above plus `web.env`; TOWER_BEARER (secretEnv) is the local bearer the page stub uses.
+web:
+  enabled: false
+  replicas: 1
+  port: 8080
+  service:
+    port: 8080
+  env:
+    TOWER_ENV: local                              # GET /config.js (the sign-in stub) exists only with local
+    WEB_CHAT_BINDING_BASE_URL: http://localhost:8081
+    WEB_CHAT_DIR: /app/web-chat                   # the page, baked into the image
+  ingress:
+    enabled: false                                # never by default: /config.js carries the local bearer
+    className: ""
+    host: ""
+    annotations: {}
+    tls: []
 
 serviceAccount:
   create: true

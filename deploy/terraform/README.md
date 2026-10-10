@@ -22,7 +22,7 @@ has to confirm.
 ecr/               SEPARATE ROOT, own state: the five ECR repositories + lifecycle policy (`make ecr-up`; kept by
                    `make down`; destroyed only by `make down-all`). Outputs ecr_repositories, registry, region.
 main.tf            module wiring, ECR read by `data "aws_ecr_repository"`, generated (non-carrier) secrets
-providers.tf       aws (+ us-east-1 alias for the CloudFront WAF), random
+providers.tf       aws (+ us-east-1 alias for the CloudFront WAF), random, archive (zips the web chat proxy)
 variables.tf       every input; envs/aws.tfvars.example shows the ones a human sets
 outputs.tf         Tower MCP URL, binding URL, hooks base, Gateway URL, ECR, tables, keys, ...
 backend.tf         S3 state; placeholders (REPLACE-ME) and the bootstrap commands
@@ -32,12 +32,16 @@ modules/
   kms/             two keys: symmetric (msisdn_enc envelope, rotation on) + HMAC_256 (line_id, audit trim marker)
   network/         VPC, public/private subnets, optional NAT, S3/DynamoDB gateway endpoints, VPC link, egress SG
   mock_carrier/    Fargate service, internal ALB (HTTPS, ACM), Route 53 record, Secrets Manager for the mock's registry
-  agentcore_runtime/   Tower (MCP protocol, JWT authorizer), optional ref-client agent, log group, IAM
+  agentcore_runtime/   Tower (MCP protocol, JWT authorizer) + the web chat agent (HTTP protocol, own role:
+                       Bedrock + logs + ECR only; enable_web_chat), log groups, IAM
   agentcore_gateway/   Gateway (AWS_IAM inbound) + one OpenAPI target per specs/camara/*.yaml, OAuth via Identity
   agentcore_identity/  two CustomOauth2 credential providers (client credentials; auth code) + binding workload identity
   lambdas/         binding-page, alerts, reconcile (arm64 images), HTTP API, CloudFront + WAF rate rule on /hooks/*
   scheduler/       transplant 5 min, care 30 min, daily 08:00 self + care, reconcile 03:00, escalation tick 5 min
   sns/             SMS replies topic → alerts Lambda, optional push topic, SMS preferences
+  cognito/         user pool (admin-create-only), Hosted UI domain, app client `web-chat` (code + PKCE, no secret);
+                   Tower and both Runtime authorizers trust it (tower_jwt_* are overrides only)
+  web_chat/        the chat page: private S3 + CloudFront (OAC), Lambda function URL proxy → agent runtime (09 §6)
   observability/   dashboard (p95 per tool, alert counts, reconcile misses), metric filters, alarms, line_id guard
 ```
 
@@ -168,6 +172,9 @@ and the hooks base, and writes `deploy/.env.aws` for `make demo ENV=aws` / `make
 - Reconciliation needs Tower's spans in `aws/spans`. Enable CloudWatch Transaction Search once per account, and
   run Tower under the ADOT distro (`aws-opentelemetry-distro`, `opentelemetry-instrument python -m tower_mcp`).
   Until then the nightly job sees zero calls and reports `checked: 0`.
+- Web chat (build-log/20): the agent runtime's JWT authorizer passing `Authorization` through
+  (`request_header_allowlist`); whether a JWT caller must send the Runtime session header; whether the function
+  URL (`auth_type NONE`) needs `lambda:InvokeFunction` as well as `lambda:InvokeFunctionUrl`.
 - Two-way SMS: attach the `…-sms-replies` topic to an origination number in AWS End User Messaging.
 
 ## Cost

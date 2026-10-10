@@ -72,3 +72,15 @@ variable "binding_redirect_prefixes" {
   description = "Where the mock may send a Number Verification code back to."
   type        = list(string)
 }
+
+variable "assume_mobile_data" {
+  description = "MOCK_ASSUME_MOBILE_DATA (08 §3): attribute every authorize request to assume_client_id. A simulation aid."
+  type        = bool
+  default     = false
+}
+
+variable "assume_client_id" {
+  description = "MOCK_ASSUME_CLIENT_ID: the scenario's mobile_data_client_ids entry assumed (one line is \"the phone\")."
+  type        = string
+  default     = "phone-asish"
+}

@@ -24,6 +24,11 @@ class TowerError(RuntimeError):
     A policy refusal is *not* an error: it is a normal `ToolResult` with a refusal reason code."""
 
 
+class TowerUnauthorized(TowerError):
+    """Tower answered 401: the bearer was refused (expired, wrong issuer or client). The web chat page signs in
+    again (09 §6.2 rule 7)."""
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     """One tool as Tower advertises it: the description is the voice UX (01 §2)."""
@@ -39,6 +44,9 @@ class TowerConfig:
     bearer: str | None = None
     user_id: str | None = None
     timeout_s: float = 10.0
+    # The caller's whole `Authorization` header, forwarded byte for byte (the web chat agent, 09 §6.2 rule 3).
+    # Wins over `bearer`.
+    authorization: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls, *, user_id: str | None = None) -> TowerConfig:
@@ -51,7 +59,9 @@ class TowerConfig:
 
     def headers(self) -> dict[str, str]:
         h: dict[str, str] = {}
-        if self.bearer:
+        if self.authorization:
+            h["Authorization"] = self.authorization
+        elif self.bearer:
             h["Authorization"] = f"Bearer {self.bearer}"
         if self.user_id:
             h["X-Tower-User"] = self.user_id
@@ -74,20 +84,44 @@ class TowerClient:
         self._factory = httpx_client_factory
         self._client: Any = None
         self._tools: list[ToolSpec] | None = None
+        self._refused = False  # Tower answered 401 at least once on this session
+
+    def _watching_factory(self) -> Callable[..., Any]:
+        """The MCP client turns a 401 into a generic "Server returned an error response" and drops the status,
+        so a response hook on the HTTP client remembers it (09 §6.2 rule 7 needs 401 apart from "unreachable")."""
+        from mcp.shared._httpx_utils import create_mcp_http_client
+
+        inner = self._factory or create_mcp_http_client
+
+        async def on_response(response: Any) -> None:
+            if response.status_code == 401:
+                self._refused = True
+
+        def factory(*args: Any, **kwargs: Any) -> Any:
+            client = inner(*args, **kwargs)
+            client.event_hooks["response"].append(on_response)
+            return client
+
+        return factory
+
+    def _error(self, what: str, exc: BaseException) -> TowerError:
+        if self._refused:
+            return TowerUnauthorized(f"{what}: Tower refused the bearer (401)")
+        return TowerError(f"{what}: {type(exc).__name__}")
 
     async def __aenter__(self) -> TowerClient:
         from fastmcp import Client
         from fastmcp.client.transports import StreamableHttpTransport
 
         transport = StreamableHttpTransport(
-            self.config.url, headers=self.config.headers(), httpx_client_factory=self._factory
+            self.config.url, headers=self.config.headers(), httpx_client_factory=self._watching_factory()
         )
         self._client = Client(transport, timeout=self.config.timeout_s)
         try:
             await self._client.__aenter__()
         except Exception as e:  # noqa: BLE001 - one clear error for "cannot reach Tower"
             self._client = None
-            raise TowerError(f"cannot connect to Tower at {self.config.url}: {type(e).__name__}") from None
+            raise self._error(f"cannot connect to Tower at {self.config.url}", e) from None
         return self
 
     async def __aexit__(
@@ -103,7 +137,7 @@ class TowerClient:
             try:
                 listed = await self._client.list_tools()
             except Exception as e:  # noqa: BLE001
-                raise TowerError(f"tools/list failed: {type(e).__name__}") from None
+                raise self._error("tools/list failed", e) from None
             self._tools = [ToolSpec(t.name, t.description or "", dict(t.inputSchema or {})) for t in listed]
         return self._tools
 
@@ -114,9 +148,9 @@ class TowerClient:
         try:
             res = await self._client.call_tool(name, arguments)
         except ToolError as e:
-            raise TowerError(f"{name}: {e}") from None
+            raise (TowerUnauthorized if self._refused else TowerError)(f"{name}: {e}") from None
         except Exception as e:  # noqa: BLE001
-            raise TowerError(f"{name}: {type(e).__name__}") from None
+            raise self._error(name, e) from None
         data = res.structured_content
         if not isinstance(data, dict):
             text = res.content[0].text if res.content else "{}"

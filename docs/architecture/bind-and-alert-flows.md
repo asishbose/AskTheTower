@@ -1,6 +1,6 @@
 # Bind link and alert SMS — end-to-end flows for the demo
 
-**Status: reviewed 2026-10-09 (Badhri's proposal + team decisions).** Parts marked **exists** are in the code today. Parts marked **new** are not built yet. They are built by prompt 20 as the **web chat page** (`services/web-chat` + the reference client's HTTP app; contract in `components/09-reference-client.md` §6), not by the demo UI (see D-B). The decisions below settle the open questions; anything not listed is roadmap (deadline 23 Oct).
+**Status: reviewed 2026-10-09 (Badhri's proposal + team decisions).** Parts marked **exists** are in the code today. Parts marked **exists (prompt 20)** were built by prompt 20 (code and offline tests; the AWS deployment is still `TODO(human)` in build-log/20). They were built as the **web chat page** (`services/web-chat` + the reference client's HTTP app; contract in `components/09-reference-client.md` §6), not by the demo UI (see D-B). The decisions below settle the open questions; anything not listed is roadmap (deadline 23 Oct).
 
 ## Decisions (2026-10-09)
 
@@ -41,8 +41,8 @@ What this changes in the text below: read "web-sim" as the web chat page (09 §6
 
 | Piece | Runs on (local / AWS) | Sign-in | Status |
 |---|---|---|---|
-| Chat page (`services/web-chat`, 09 §6) | compose `:8083` (served by the agent) / S3 + CloudFront | **Cognito** Hosted UI (PKCE) user name + password; locally a sign-in stub | new (step 5) |
-| Agent (reference client HTTP app) | compose `:8083` / AgentCore Runtime (HTTP) behind a Lambda URL | Cognito JWT, from the chat page; forwarded to Tower unchanged | new (step 3) |
+| Chat page (`services/web-chat`, 09 §6) | compose `:8083` (served by the agent) / S3 + CloudFront | **Cognito** Hosted UI (PKCE) user name + password; locally a sign-in stub | exists (prompt 20) |
+| Agent (reference client HTTP app) | compose `:8083` / AgentCore Runtime (HTTP) behind a Lambda URL | Cognito JWT, from the chat page; forwarded to Tower unchanged | exists (prompt 20) |
 | Tower | compose / AgentCore Runtime (MCP) | Cognito JWT, from the agent | exists |
 | Binding page | compose `:8081` / Lambda | **The bind link token** (no password), then cookie `atb_session` | exists |
 | Alerts | compose `:8082` / Lambda | Shared bearer from Tower; carrier events use the sink token | exists |
@@ -87,13 +87,13 @@ sequenceDiagram
 
 | # | What happens | Where | Status | Check (fails closed) |
 |---|---|---|---|---|
-| 1 | Asish signs in on the chat page | web-sim → Cognito (PKCE) | new | Wrong password → no session |
-| 2 | Asish asks "Is my line OK?" | web-sim → agent, `Authorization: Bearer <JWT>` | new | No token → 401, no model call |
-| 3 | The model picks `line_is_ok(line="self")` | agent → Bedrock | new | — |
+| 1 | Asish signs in on the chat page | web-sim → Cognito (PKCE) | exists (prompt 20) | Wrong password → no session |
+| 2 | Asish asks "Is my line OK?" | web-sim → agent, `Authorization: Bearer <JWT>` | exists (prompt 20) | No token → 401, no model call |
+| 3 | The model picks `line_is_ok(line="self")` | agent → Bedrock | exists (prompt 20) | — |
 | 4 | Tower finds no bound line for Asish's `sub`. It creates a bind token for that `sub` and answers `NOT_BOUND` with `next_step = {kind: "bind_line", url: ".../bind/<token>"}` | Tower `next_step.py` | **exists** | Token: single use, 10 min, one user |
-| 5 | The agent copies `next_step` from the tool result into its reply, **unchanged** | agent `/invocations` | new | Only from the tool result, never from model text |
-| 6 | web-sim checks the URL: it must start with `BINDING_BASE_URL/bind/` | web-sim | new | Anything else → not shown, not sent |
-| 7 | The page shows "Your line isn't connected yet", the link (copyable) and "tap it on your phone, then ask again". No SMS button (D-D) | web-sim | new | — |
+| 5 | The agent copies `next_step` from the tool result into its reply, **unchanged** | agent `/invocations` | exists (prompt 20) | Only from the tool result, never from model text |
+| 6 | web-sim checks the URL: it must start with `BINDING_BASE_URL/bind/` | web-sim | exists (prompt 20) | Anything else → not shown, not sent |
+| 7 | The page shows "Your line isn't connected yet", the link (copyable) and "tap it on your phone, then ask again". No SMS button (D-D) | web-sim | exists (prompt 20) | — |
 | 8 | ~~Asish types his phone number in a form field and taps Send~~ | — | **not built (D-D)** | See 2.3 |
 | 9 | ~~web-sim sends the SMS~~ — Asish copies or AirDrops the link to his phone | — | **not built (D-D)** | No number field, no `sns:Publish` for the page |
 | 10 | Asish opens the link on the phone | phone → binding page `GET /bind/<token>` | **exists** | Token unknown or expired → "expired" page |
@@ -101,7 +101,7 @@ sequenceDiagram
 | 12 | The carrier sees the phone on its mobile network and confirms the number (`phoneNumberShare`) | carrier → binding page `/bind/callback` | **exists** (mock: simulated) | On Wi-Fi → refused |
 | 13 | `bind_line`: `line_id = HMAC(number)`, `Lines.msisdn_enc = encrypt(number)`, owner = the `sub` in the token | `tower_consent/bind.py` | **exists** | Token for another user → refused; line owned by someone else → "taken" |
 | 14 | The phone shows "Line connected •••• 0101" | binding page | **exists** | Only the last four digits |
-| 15 | Asish asks again on the chat page. Tower now finds the line and answers | web-sim → agent → Tower | new / exists | — |
+| 15 | Asish asks again on the chat page. Tower now finds the line and answers | web-sim → agent → Tower | exists (prompt 20) | — |
 
 ### 2.3 Sending the link by SMS — rules (**not built; see D-D**)
 

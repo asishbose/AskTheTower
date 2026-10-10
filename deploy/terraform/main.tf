@@ -8,6 +8,8 @@
 #   Store             -> DynamoDB on-demand, 7 tables                     (modules/dynamodb)
 #   Keys              -> KMS                                              (modules/kms)
 #   Dashboards        -> CloudWatch                                       (modules/observability)
+#   Web chat (09 §6)  -> Cognito pool + agent runtime (HTTP) + S3/CloudFront + Lambda URL
+#                                                                        (modules/cognito, agentcore_runtime, web_chat)
 #
 # The EKS portability target (prompt 14) is a separate root under deploy/terraform/eks that reads this stack's
 # outputs (tables, KMS keys, SNS topic) — it is not a module of this root, so `make down` here never touches it.
@@ -70,6 +72,13 @@ locals {
   } : null
 
   table_arns = values(module.dynamodb.table_arns)
+
+  # Inbound identity (01 §4, D-A): the Terraform Cognito pool unless a hand-made issuer is given (overrides).
+  # Tower and the agent runtime accept the web-chat client plus tower_jwt_allowed_clients (the Alexa client).
+  jwt_discovery_url = var.tower_jwt_discovery_url != "" ? var.tower_jwt_discovery_url : module.cognito.discovery_url
+  jwt_jwks_url      = var.tower_jwks_url != "" ? var.tower_jwks_url : module.cognito.jwks_url
+  jwt_issuer        = var.tower_jwt_issuer != "" ? var.tower_jwt_issuer : module.cognito.issuer
+  jwt_clients       = distinct(concat([module.cognito.client_id], var.tower_jwt_allowed_clients))
 }
 
 # --- container registry (read only) -------------------------------------------------------------------------------
@@ -152,6 +161,7 @@ module "mock_carrier" {
   route53_zone_id    = var.mock_route53_zone_id
   certificate_arn    = var.mock_certificate_arn
   scenario           = var.mock_scenario
+  assume_mobile_data = var.mock_assume_mobile_data
   kms_key_arn        = module.kms.key_arn
   log_retention_days = var.log_retention_days
 
@@ -201,17 +211,21 @@ module "agentcore_runtime" {
   account_id         = local.account_id
   image              = local.images["tower-mcp"]
   ref_client_image   = local.images["ref-client"]
-  enable_ref_client  = var.enable_ref_client_runtime
+  enable_agent       = var.enable_web_chat
   bedrock_model_id   = var.bedrock_model_id
+  binding_base_url   = local.public_base_url
   log_retention_days = var.log_retention_days
 
   table_arns   = local.table_arns
   kms_key_arns = [module.kms.key_arn, module.kms.hmac_key_arn]
   gateway_arn  = module.agentcore_gateway.gateway_arn
 
-  jwt_discovery_url    = var.tower_jwt_discovery_url
+  jwt_discovery_url    = local.jwt_discovery_url
   jwt_allowed_audience = var.tower_jwt_allowed_audience
-  jwt_allowed_clients  = var.tower_jwt_allowed_clients
+  jwt_allowed_clients  = local.jwt_clients
+
+  agent_jwt_discovery_url   = local.jwt_discovery_url
+  agent_jwt_allowed_clients = local.jwt_clients
 
   # Cut line (prompts/00): Runtime in the VPC with DirectClient -> the mock's internal ALB.
   vpc = var.tower_carrier_client == "direct" ? {
@@ -226,10 +240,10 @@ module "agentcore_runtime" {
       TOWER_KMS_KEY_ID       = module.kms.key_arn
       TOWER_KMS_HMAC_KEY_ID  = module.kms.hmac_key_arn
       TOWER_TZ               = var.tower_timezone
-      TOWER_JWKS_URL         = var.tower_jwks_url
-      TOWER_JWT_ISSUER       = var.tower_jwt_issuer
+      TOWER_JWKS_URL         = local.jwt_jwks_url
+      TOWER_JWT_ISSUER       = local.jwt_issuer
       TOWER_JWT_AUDIENCE     = join(",", var.tower_jwt_allowed_audience)
-      TOWER_JWT_CLIENT_IDS   = join(",", var.tower_jwt_allowed_clients)
+      TOWER_JWT_CLIENT_IDS   = join(",", local.jwt_clients)
       BINDING_BASE_URL       = local.public_base_url
       ALERTS_INTERNAL_URL    = local.public_base_url
       ALERTS_INTERNAL_BEARER = random_password.internal_bearer.result
@@ -253,6 +267,26 @@ module "agentcore_runtime" {
       CARRIER_CLIENT_SECRET = local.service_client.secret
     },
   )
+}
+
+module "cognito" {
+  source = "./modules/cognito"
+
+  name          = local.name
+  region        = var.region
+  domain_prefix = var.cognito_domain_prefix
+  # The Hosted UI sends the browser back to the page; Terraform sets it, so nothing is typed in the console.
+  callback_urls = var.enable_web_chat ? [module.web_chat[0].page_url] : []
+}
+
+module "web_chat" {
+  source = "./modules/web_chat"
+  count  = var.enable_web_chat ? 1 : 0
+
+  name               = local.name
+  agent_invoke_url   = module.agentcore_runtime.agent_invoke_url
+  proxy_source       = "${path.module}/../../services/web-chat/proxy/handler.py"
+  log_retention_days = var.log_retention_days
 }
 
 module "sns" {
@@ -338,6 +372,7 @@ module "lambdas" {
       CARRIER_TOKEN_URL      = local.carrier.token_url
       ALERTS_INTERNAL_URL    = local.public_base_url # 04 §9.2: re-subscribe after a watch-settings save
       ALERTS_INTERNAL_BEARER = random_password.internal_bearer.result
+      SESSION_TTL_S          = tostring(var.binding_session_ttl_s) # 04 §6, D-H: 24 h on the demo day
     },
     var.binding_carrier_client == "direct" ? {
       CARRIER_CLIENT        = "direct"

@@ -13,7 +13,8 @@ TF_VARS := $(if $(TFVARS_FILE),-var-file=$(TFVARS_FILE)) -var=image_tag=$(IMAGE_
 # destroy ignores image_tag, so `down` does not pass it: it works whatever tag is in state.
 TF_DOWN_VARS := $(if $(TFVARS_FILE),-var-file=$(TFVARS_FILE))
 TFR_VARS := $(if $(TFVARS_FILE),-var-file=../$(TFVARS_FILE)) -compact-warnings
-.PHONY: ecr-up ecr-outputs plan deploy seed-aws outputs latency-aws register-gateway tf-check down-all
+.PHONY: ecr-up ecr-outputs plan deploy seed-aws outputs latency-aws register-gateway tf-check down-all \
+	cognito-users web-chat-sync web-chat-url
 ecr-up: ## Create the five ECR repositories (own state; idempotent; survives `make down`) → artifacts/tf-outputs-ecr.json
 	$(TFR) init -input=false && $(TFR) apply -input=false -auto-approve $(TFR_VARS) && $(MAKE) --no-print-directory ecr-outputs
 ecr-outputs: ## Write the ECR root's outputs (repository URLs, registry, region) to artifacts/tf-outputs-ecr.json
@@ -37,8 +38,14 @@ down-all: ## After judging: down-eks (if up) + down ENV=aws + destroy the ECR ro
 	@if [ "$(FORCE)" != "1" ]; then read -p "delete the five ECR repositories and every image in them? [y/N] " a; [ "$$a" = "y" ] || exit 1; fi
 	$(TFR) init -input=false && $(TFR) destroy -input=false -auto-approve $(TFR_VARS)
 	rm -f artifacts/tf-outputs-ecr.json artifacts/image-tag
-seed-aws: ## Seed users/lines/grants and the Fargate mock from terraform outputs
-	$(PY) scripts/aws_seed.py
+seed-aws: ## Seed the Fargate mock, and the demo rows under the Cognito subs from `make cognito-users` (skipped, exit 0, without them)
+	$(PY) scripts/aws_seed.py $(SEED_ARGS)
+cognito-users: ## Create the web chat users asish + mom in the Cognito pool (password: COGNITO_PASSWORD_<NAME> or a prompt) → artifacts/cognito-users.json
+	$(PY) scripts/cognito_user.py create asish && $(PY) scripts/cognito_user.py create mom
+web-chat-sync: ## Render the web chat config.js from the outputs, upload services/web-chat/ to S3, invalidate CloudFront
+	$(PY) scripts/web_chat_sync.py
+web-chat-url: ## Print the web chat page URL (output web_chat_url)
+	@$(PY) scripts/web_chat_sync.py --url
 outputs: ## Print terraform outputs and write deploy/.env.aws
 	@mkdir -p artifacts
 	$(TF) output -json > artifacts/tf-outputs.json && $(PY) scripts/render_env.py --env aws

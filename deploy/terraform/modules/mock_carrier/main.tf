@@ -364,6 +364,9 @@ resource "aws_ecs_task_definition" "this" {
       { name = "MOCK_SCENARIO", value = var.scenario },
       { name = "MOCK_CLIENTS_FILE", value = "/tmp/clients.yaml" },
       { name = "MOCK_ADMIN", value = "1" }, # reachable only from inside the task (ALB never forwards /_admin)
+      # 08 §3 (D-G): the task cannot see the phone's network, so it assumes this client id is on mobile data.
+      { name = "MOCK_ASSUME_MOBILE_DATA", value = var.assume_mobile_data ? "1" : "0" },
+      { name = "MOCK_ASSUME_CLIENT_ID", value = var.assume_client_id },
     ]
     secrets = [
       { name = "MOCK_CLIENTS_YAML", valueFrom = "${aws_secretsmanager_secret.registry.arn}:clients_yaml::" },

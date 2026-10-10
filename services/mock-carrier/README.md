@@ -100,6 +100,8 @@ scenario whose `clock` is `now`). The same scenario and admin calls give the sam
 | `MOCK_FAULT_TIMEOUT_S` | `0.5` | delay of a `timeout` fault |
 | `MOCK_WEBHOOK_BACKOFF_S`, `MOCK_WEBHOOK_TIMEOUT_S` | `0.2`, `2.0` | webhook retry backoff base / per-attempt timeout |
 | `MOCK_LOOPBACK_SINK_HOST` | `sink.mock.local` | sink host delivered in-process |
+| `MOCK_ASSUME_MOBILE_DATA` | off | `1`: `GET /oauth2/authorize` without `X-Mock-Client-Id` is attributed to the line of `MOCK_ASSUME_CLIENT_ID`, as if the carrier saw that phone on mobile data (AWS only, 08 §3). Logged at startup as `SIMULATION`; a request that also sends `X-Mock-Client-Id` gets 400 "one simulation at a time" |
+| `MOCK_ASSUME_CLIENT_ID` | `phone-asish` | the client id assumed by `MOCK_ASSUME_MOBILE_DATA`; one that no line has fails at startup |
 
 `.env.example` lists them with placeholders.
 

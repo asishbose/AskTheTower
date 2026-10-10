@@ -103,6 +103,7 @@ Stack (local compose)
   logs                 Tail local stack logs (Alerts' "SMS to=" lines are the phone buzz)
   logs-save            Write the stack's logs to deploy/compose/logs/stack.log (the privacy grep reads it)
   ps                   Local stack status
+  web-chat             Open the local web chat page (sign-in stub: Asish or Mom) at http://127.0.0.1:8083/ (needs make up)
   shell-%              Shell into a local service container, e.g. make shell-tower-mcp
 
 Demo and showcase
@@ -149,7 +150,10 @@ AWS (AgentCore)
   deploy               Check the pushed tag exists; terraform apply; register Gateway specs; seed the mock on Fargate; print outputs
   down                 Local: compose down -v. ENV=aws: destroy the main root — ECR repositories and images are kept (asks unless FORCE=1)
   down-all             After judging: down-eks (if up) + down ENV=aws + destroy the ECR root — the only target that deletes images
-  seed-aws             Seed users/lines/grants and the Fargate mock from terraform outputs
+  seed-aws             Seed the Fargate mock, and the demo rows under the Cognito subs from `make cognito-users` (skipped, exit 0, without them)
+  cognito-users        Create the web chat users asish + mom in the Cognito pool (password: COGNITO_PASSWORD_<NAME> or a prompt) → artifacts/cognito-users.json
+  web-chat-sync        Render the web chat config.js from the outputs, upload services/web-chat/ to S3, invalidate CloudFront
+  web-chat-url         Print the web chat page URL (output web_chat_url)
   outputs              Print terraform outputs and write deploy/.env.aws
   latency-aws          200 calls per tool against the AgentCore deployment → artifacts/latency-aws.md
   register-gateway     Register the vendored CAMARA specs with AgentCore Gateway; write gateway-tools.json

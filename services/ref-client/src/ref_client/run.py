@@ -3,6 +3,7 @@
     ref-client say "is my line ok" [--user asish]      one utterance through the Bedrock agent
     ref-client demo [--env local] [--agent auto]        the three moments + transplant story; writes transcripts
     ref-client corpus [--env local]                     the phrasing corpus → artifacts/corpus.md
+    ref-client serve                                    the HTTP app behind the web chat page (09 §6; the image's CMD)
 
 `--agent auto` (default) uses Bedrock when AWS credentials are configured and the scripted agent otherwise
 (demo only; it says so on the first line). `--agent bedrock` never falls back: no Bedrock → exit 3 with the
@@ -61,6 +62,8 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--out", type=Path, default=ARTIFACTS / "corpus.md")
     c.add_argument("--user", default="asish")
     common(c)
+
+    sub.add_parser("serve", help="the HTTP app behind the web chat page (POST /invocations; env, not flags)")
     return p
 
 
@@ -167,6 +170,11 @@ COMMANDS: dict[str, Any] = {"say": _say, "demo": _demo, "corpus": _corpus}
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.cmd == "serve":
+        from ref_client.http import serve
+
+        serve()
+        return EXIT_OK
     try:
         return int(asyncio.run(COMMANDS[args.cmd](args)))
     except BedrockUnavailable as e:

@@ -5,6 +5,7 @@ these; nothing else mutates state."""
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,7 +14,7 @@ from typing import Any
 import httpx
 
 from mock_carrier.clock import Clock, iso
-from mock_carrier.oauth import ClientRegistry
+from mock_carrier.oauth import ClientRegistry, SimulationConflict
 from mock_carrier.scenarios import load_scenario
 from mock_carrier.settings import Settings
 from mock_carrier.specs import SpecSet
@@ -32,6 +33,8 @@ T_REACH_DISCONNECTED = _R + "reachability-disconnected"
 T_REACH_ENDED = _R + "subscription-ended"
 
 ENDED_TYPE = {SIM_SWAP_SUBS: T_SIM_ENDED, REACH_SUBS: T_REACH_ENDED}
+
+log = logging.getLogger("mock_carrier")
 
 
 class AdminError(ValueError):
@@ -63,6 +66,29 @@ class Runtime:
         self._lock = asyncio.Lock()
         self._jitter = random.Random() if settings.jitter_ms > 0 else None  # noqa: S311 — latency jitter, not crypto
         self.load(settings.scenario)
+        self._check_assumed_client_id()
+
+    def _check_assumed_client_id(self) -> None:
+        """08 §3: an unknown `MOCK_ASSUME_CLIENT_ID` fails at startup, not at bind time."""
+        if not self.settings.assume_mobile_data:
+            return
+        if self.state.line_for_client_id(self.settings.assume_client_id) is None:
+            raise ValueError(
+                f"MOCK_ASSUME_CLIENT_ID={self.settings.assume_client_id!r} matches no line's "
+                "mobile_data_client_ids in the loaded scenario"
+            )
+        log.warning("SIMULATION: MOCK_ASSUME_MOBILE_DATA=1 (client id %s)", self.settings.assume_client_id)
+
+    def attributed_client_id(self, header_value: str | None) -> str | None:
+        """The client id the 'network' attributes an authorize request to (08 §3).
+
+        Raises `SimulationConflict` when the assumed-mobile-data flag is on and the request also
+        carries `X-Mock-Client-Id`: one simulation at a time."""
+        if self.settings.assume_mobile_data:
+            if header_value:
+                raise SimulationConflict("one simulation at a time")
+            return self.settings.assume_client_id
+        return header_value or None
 
     # --- scenarios -------------------------------------------------------------------------------
     def load(self, name: str, variant: str | None = None) -> None:

@@ -29,17 +29,26 @@ mock_route53_zone_id = "ZEXAMPLEZONEID" # a public zone you own; or set mock_cer
 # sandbox_binding_client_id = "your-number-verification-client-id"
 # export TF_VAR_sandbox_client_secret=... TF_VAR_sandbox_binding_client_secret=...
 
-# --- Tower inbound auth (spike A: bearer JWT, user_id = sub) -------------------------------------------------------
-tower_jwt_discovery_url    = "https://issuer.example.org/.well-known/openid-configuration"
-tower_jwt_allowed_audience = ["ask-the-tower"]
-tower_jwks_url             = "https://issuer.example.org/.well-known/jwks.json"
-tower_jwt_issuer           = "https://issuer.example.org"
+# --- Tower inbound auth (01 §4, D-A: Cognito JWT, user_id = sub) ----------------------------------------------------
+# modules/cognito creates the pool and the `web-chat` client; Tower and both Runtime authorizers use it. Nothing to
+# set for the web chat. Add the Alexa account-linking client id here after registration.md §2:
+tower_jwt_allowed_clients = [] # e.g. ["<alexa-link-client-id>"]
+# Overrides for a hand-made identity provider only (empty = the Terraform pool):
+# tower_jwt_discovery_url    = "https://issuer.example.org/.well-known/openid-configuration"
+# tower_jwks_url             = "https://issuer.example.org/.well-known/jwks.json"
+# tower_jwt_issuer           = "https://issuer.example.org"
+# tower_jwt_allowed_audience = [] # Cognito access tokens carry no aud
+
+# --- web chat page (09 §6; prompt 20) --------------------------------------------------------------------------------
+enable_web_chat         = true
+cognito_domain_prefix   = "" # empty = att-dev-<6 random hex>; Hosted UI prefixes are global
+mock_assume_mobile_data = true # 08 §3: the Fargate mock assumes phone-asish is on mobile data (simulation)
+binding_session_ttl_s   = 86400 # 04 §6, D-H: the binding page session lasts the demo day
 
 # --- SMS (SNS sandbox) ----------------------------------------------------------------------------------------------
 sms_sandbox_numbers     = [] # e.g. ["+1613555xxxx"] — the demo phones; keep real numbers out of git
 sms_monthly_spend_limit = 1
 
 # --- optional --------------------------------------------------------------------------------------------------------
-enable_ref_client_runtime = false
-enable_cloudfront_waf     = true
-enable_nat_gateway        = false
+enable_cloudfront_waf = true
+enable_nat_gateway    = false

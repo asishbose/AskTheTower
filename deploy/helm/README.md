@@ -11,7 +11,9 @@ deploy/helm/
   binding-page/     Deployment, Service :8081, Ingress (public, TLS), PDB, ServiceAccount (IRSA)
   alerts/           Deployment (ALERTS_MODE=k8s: hooks + internal API), CronJobs for 10 §3, Ingress (/hooks only),
                     https sidecar for in-cluster webhook sinks (kind), ServiceAccount (IRSA: DynamoDB, KMS, SNS)
-  ref-client/       Job (`ref-client demo`, per release revision), optional toolbox Deployment, ServiceAccount (Bedrock)
+  ref-client/       Job (`ref-client demo`, per release revision), optional toolbox Deployment, ServiceAccount (Bedrock),
+                    `web`: the web chat agent (`serve`) Deployment + ClusterIP Service `ref-client-web` (09 §6; on in
+                    values-kind/eks, Ingress off): kubectl port-forward svc/ref-client-web 8083:8080
   demo-ui/          the demo control room (doc 11): Deployment + ClusterIP Service, kind only (`values-kind.yaml`
                     enabled, `values-eks.yaml` enabled=false: laptop tooling, never on a cloud cluster)
   dynamodb-local/   kind only (disabled on EKS)

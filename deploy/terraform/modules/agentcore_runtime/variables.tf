@@ -16,18 +16,38 @@ variable "image" {
 }
 
 variable "ref_client_image" {
-  type    = string
-  default = ""
+  description = "ref-client image URI: its default command is the web chat agent's HTTP app."
+  type        = string
+  default     = ""
 }
 
-variable "enable_ref_client" {
-  type    = bool
-  default = false
+variable "enable_agent" {
+  description = "Create the web chat agent runtime (root variable enable_web_chat)."
+  type        = bool
+  default     = false
 }
 
 variable "bedrock_model_id" {
   type    = string
   default = "amazon.nova-micro-v1:0"
+}
+
+variable "binding_base_url" {
+  description = "WEB_CHAT_BINDING_BASE_URL: the agent drops a bind_line URL outside <this>/bind/ (09 §6.2 rule 5)."
+  type        = string
+  default     = ""
+}
+
+variable "agent_jwt_discovery_url" {
+  description = "The agent runtime's custom_jwt_authorizer discovery URL (the Cognito pool)."
+  type        = string
+  default     = ""
+}
+
+variable "agent_jwt_allowed_clients" {
+  description = "Allowed client_id values for the agent runtime (the web-chat app client)."
+  type        = list(string)
+  default     = []
 }
 
 variable "environment" {

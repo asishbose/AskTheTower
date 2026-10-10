@@ -29,6 +29,8 @@ dev = [
 
 [tool.uv.workspace]
 members = ["packages/*", "services/*"]
+# Static files + a stdlib Lambda handler, not a Python package (09 §6.4); its tests run from the root.
+exclude = ["services/web-chat"]
 
 [tool.uv.sources]
 tower-policy = { workspace = true }

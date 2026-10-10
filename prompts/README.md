@@ -40,6 +40,7 @@ Live AWS checklist (the deferred steps of 13, in order): `make ecr-up` (once; th
 | 18 | [test suite](18-test-suite.md) | **unit / integration / e2e** as one suite with gates, `ENV=` matrix, `artifacts/test-report.md` | 03–14 | 14 |
 | 19 | [Makefile](19-makefile.md) | the one CLI: `make help`, `ENV=local\|eks\|aws`, build/scan/sbom, docs-check | 12 13 14 18 | 14 |
 | 20 | [Web chat page](20-web-chat-page.md) | reference client behind Cognito on AgentCore Runtime + a thin page: the Alexa+ stand-in for the AWS demo; `MOCK_ASSUME_MOBILE_DATA`; Cognito `sub` seeding | 09 11 13 15 | — |
+| 21 | [Demo UI: visual](21-demo-ui-visual.md) | presentation-only redesign of the control room: dark, picture-led, an animated Stage driven by the feed; behaviour and tests unchanged | 11 | — |
 | 16 | [showcase artefacts + video](16-showcase-artefacts-and-video.md) | `artifacts/*`, the nine-step run, the recording | all | 15–16 |
 | 17 | [submission README + prior art](17-submission-readme-and-prior-art.md) | the pitch-and-run README, `docs/prior-art.md`, form text, licence | 16 18 19 | 17 |
 

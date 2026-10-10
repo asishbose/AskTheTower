@@ -8,8 +8,10 @@
 # are what .env.example says, so `docker compose config` works on a fresh clone.
 #
 # Host ports (mk/vars.mk): dynamodb-local 8000 · mock-carrier 8443 · tower-mcp 8080 (→ container 8000, /mcp)
-#                          binding-page 8081 · alerts 8082 · demo-ui 8090.  alerts-tls (https :8443) is internal only.
-# The mock (its /_admin can reset the demo) and the demo UI are published on 127.0.0.1 only (doc 11 decisions 1, 7).
+#                          binding-page 8081 · alerts 8082 · web-chat 8083 · demo-ui 8090.  alerts-tls (https :8443)
+#                          is internal only.
+# The mock (its /_admin can reset the demo), the web chat (its /config.js holds the local bearer) and the demo UI
+# are published on 127.0.0.1 only (doc 11 decisions 1, 7; 09 §6.4).
 # Containers reach each other by service name on the one network `tower`.
 name: ask-the-tower
 
@@ -214,6 +216,32 @@ services:
       <<: *healthy
     networks: [tower]
 
+  # The web chat page and its agent (09 §6): the ref-client image's default command, the HTTP app, serving
+  # services/web-chat at / with the local sign-in stub (GET /config.js, TOWER_ENV=local only). 127.0.0.1 only:
+  # /config.js carries the local static bearer. No AWS credentials are passed in, so REF_AGENT=auto is the
+  # scripted agent (exact-phrase lookup); run `uv run ref-client serve` on the host for Bedrock.
+  web-chat:
+    build: { context: ../.., dockerfile: services/ref-client/Dockerfile }
+    image: ask-the-tower/ref-client:${IMAGE_TAG:-latest}
+    command: ["serve"]
+    ports: ["127.0.0.1:${WEB_CHAT_HOST_PORT:-8083}:8080"]
+    environment:
+      TOWER_ENV: local
+      TOWER_URL: http://tower-mcp:8000/mcp
+      TOWER_BEARER: ${TOWER_BEARER:-}
+      WEB_CHAT_BINDING_BASE_URL: ${BINDING_PUBLIC_URL:-http://localhost:8081}
+      WEB_CHAT_DIR: /app/web-chat
+      REF_CLIENT_HTTP_PORT: "8080"
+      REF_AGENT: ${REF_AGENT:-auto}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-amazon.nova-micro-v1:0}
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      tower-mcp: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      <<: *healthy
+    networks: [tower]
+
   # --- tools (profile: tools) — not started by `make up`; run with `docker compose --profile tools run --rm …`
   seed:
     image: ask-the-tower/tower-mcp:${IMAGE_TAG:-latest}  # built by tower-mcp above; has tower_consent + httpx
@@ -231,7 +259,7 @@ services:
       mock-carrier: { condition: service_healthy }
     networks: [tower]
 
-  ref-client:
+  ref-client:  # the one-shot CLI for `make demo` (`ref-client demo …`); the image's default command is `serve`
     build: { context: ../.., dockerfile: services/ref-client/Dockerfile }
     image: ask-the-tower/ref-client:${IMAGE_TAG:-latest}
     profiles: ["tools"]

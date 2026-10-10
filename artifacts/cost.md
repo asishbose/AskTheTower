@@ -30,6 +30,13 @@
 | DynamoDB on-demand (7 tables, PITR on Audit) | kilobytes | < 1 |
 | SNS SMS (US) | ~50 messages; + an origination number for two-way replies | 1–3 |
 | Bedrock (reference client, dev-time tokens) | Nova Micro, corpus runs | 1–5 |
+| Web chat: Cognito user pool (prompt 20) | 2 users, a few dozen sign-ins (free tier: 10k MAU on Lite) | 0 |
+| Web chat: agent runtime (AgentCore Runtime, HTTP) | billed per active request: tens of chat turns, ~1–3 s each | < 1 |
+| Web chat: Bedrock tokens from the page | ~2 Converse calls × ~1.2 k input tokens per turn, Nova Micro | < 0.1 |
+| Web chat: S3 + CloudFront + Lambda URL proxy | 4 objects (~20 KB), demo traffic, free-tier Lambda | < 0.1 |
+
+The web chat (`enable_web_chat`, default true) adds no fixed cost: no ALB, no NAT, no always-on task. Estimate
+from list prices, not measured (no AWS in the autonomous build, 2026-10-09).
 
 ## Against the deck's "about $12/month"
 

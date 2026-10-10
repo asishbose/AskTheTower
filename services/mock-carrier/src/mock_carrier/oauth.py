@@ -41,6 +41,10 @@ CIBA_TTL = timedelta(minutes=2)
 MOCK_CLIENT_HEADER = "X-Mock-Client-Id"
 
 
+class SimulationConflict(ValueError):
+    """`MOCK_ASSUME_MOBILE_DATA=1` and an `X-Mock-Client-Id` header on the same request (08 §3)."""
+
+
 # --- client registry -------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Client:
@@ -300,7 +304,10 @@ def router(rt: Runtime) -> APIRouter:
         scopes = _requested_scopes(client, q.get("scope"))
         if scopes is None:
             return _oauth_error(400, "invalid_scope", "scope not allowed for this client")
-        attributed = request.headers.get(MOCK_CLIENT_HEADER)
+        try:
+            attributed = rt.attributed_client_id(request.headers.get(MOCK_CLIENT_HEADER))
+        except SimulationConflict as exc:
+            return _oauth_error(400, "invalid_request", str(exc))
         line = rt.state.line_for_client_id(attributed) if attributed else None
         code = AuthCode(
             code=rt.state.next_id("code"),

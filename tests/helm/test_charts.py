@@ -188,6 +188,20 @@ def test_charts_use_the_compose_env_names() -> None:
 
 
 @pytest.mark.unit
+def test_web_chat_chart_uses_the_compose_env_names() -> None:
+    """09 §6.3: compose `web-chat` and the ref-client chart's `web` Deployment set the same variables."""
+    compose = yaml.safe_load((ROOT / "deploy/compose/docker-compose.yml").read_text())["services"]["web-chat"]
+    values = yaml.safe_load((HELM / "ref-client" / "values.yaml").read_text())
+    names = (
+        set(values["env"]) | set(values["web"]["env"]) | set(values["secretEnv"]) | {"REF_CLIENT_HTTP_PORT"}
+    )
+    missing = {k for k in compose["environment"] if k not in names} - {"PYTHONUNBUFFERED"}  # set in the image
+    assert not missing, f"compose web-chat sets {sorted(missing)} which the chart does not"
+    assert compose["ports"] == ["127.0.0.1:${WEB_CHAT_HOST_PORT:-8083}:8080"]  # loopback only: /config.js
+    assert values["web"]["ingress"]["enabled"] is False
+
+
+@pytest.mark.unit
 def test_no_secrets_or_numbers_committed_in_deploy_helm() -> None:
     from tests.privacy.patterns import phone_hits
 
@@ -265,8 +279,8 @@ def test_umbrella_template_passes_kubeconform(built_umbrella: Path, target: str,
     manifest = render(built_umbrella, *values)
     kinds = [d["kind"] for d in yaml.safe_load_all(manifest) if d]
     if target == "kind":
-        # incl. dynamodb-local and demo-ui (doc 11: kind only)
-        assert "CronJob" not in kinds and kinds.count("Deployment") == 6
+        # incl. dynamodb-local and demo-ui (doc 11: kind only) and the web chat agent ref-client-web (09 §6.3)
+        assert "CronJob" not in kinds and kinds.count("Deployment") == 7
     else:
         assert (
             kinds.count("CronJob") == 5 and kinds.count("Ingress") == 3 and "HorizontalPodAutoscaler" in kinds

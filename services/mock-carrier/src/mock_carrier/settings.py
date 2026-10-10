@@ -57,6 +57,9 @@ class Settings:
     webhook_backoff_s: float = 0.2
     webhook_timeout_s: float = 2.0
     loopback_sink_host: str = "sink.mock.local"
+    # 08 §3 (D-G): on Fargate the mock cannot see the phone's network, so it can assume one client id.
+    assume_mobile_data: bool = False
+    assume_client_id: str = "phone-asish"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -82,4 +85,6 @@ class Settings:
             webhook_backoff_s=float(env.get("MOCK_WEBHOOK_BACKOFF_S", "0.2")),
             webhook_timeout_s=float(env.get("MOCK_WEBHOOK_TIMEOUT_S", "2.0")),
             loopback_sink_host=env.get("MOCK_LOOPBACK_SINK_HOST", "sink.mock.local"),
+            assume_mobile_data=_flag("MOCK_ASSUME_MOBILE_DATA"),
+            assume_client_id=env.get("MOCK_ASSUME_CLIENT_ID") or "phone-asish",
         )

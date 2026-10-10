@@ -1,6 +1,8 @@
 # Tower on Bedrock AgentCore Runtime (10 §1-2): the container from services/tower-mcp, MCP over Streamable HTTP on
-# 0.0.0.0:8000/mcp (the image's default), stateless. Optionally the reference client as a second Runtime agent
-# (the Strands-on-Bedrock showcase).
+# 0.0.0.0:8000/mcp (the image's default), stateless. With `enable_agent`, the web chat agent as a second Runtime
+# (09 §6, prompt 20): the ref-client image's HTTP app (POST /invocations, GET /ping on 8080), protocol HTTP, with
+# its own role (Bedrock invoke, logs, ECR pull — no DynamoDB, KMS or Gateway: 09 §5), the same JWT authorizer
+# shape, and the caller's Authorization header passed through to the container, which forwards it to Tower.
 #
 # Inbound auth per spike A (RUN-ALL Decisions): a bearer JWT validated by Runtime's custom JWT authorizer
 # (discovery URL of the issuer) and again by Tower itself (TOWER_JWKS_URL, user_id = sub); the Authorization
@@ -94,14 +96,6 @@ data "aws_iam_policy_document" "runtime" {
       "arn:aws:bedrock-agentcore:${var.region}:${var.account_id}:workload-identity-directory/default/workload-identity/*",
     ]
   }
-  dynamic "statement" {
-    for_each = var.enable_ref_client ? [1] : []
-    content {
-      sid       = "RefClientModel"
-      actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream"]
-      resources = ["arn:aws:bedrock:${var.region}::foundation-model/*", "arn:aws:bedrock:*:${var.account_id}:inference-profile/*"]
-    }
-  }
 }
 
 resource "aws_iam_role_policy" "runtime" {
@@ -161,17 +155,63 @@ resource "aws_cloudwatch_log_group" "tower" {
   retention_in_days = var.log_retention_days
 }
 
-# --- optional: the reference client as a second Runtime agent ---------------------------------------------------
+# --- the web chat agent: a second Runtime (protocol HTTP) with its own role -------------------------------------
+
+locals {
+  agent_name      = "${replace(var.name, "-", "_")}_ref_client"
+  tower_invoke    = "https://bedrock-agentcore.${var.region}.amazonaws.com/runtimes/${urlencode(aws_bedrockagentcore_agent_runtime.tower.agent_runtime_arn)}/invocations?qualifier=DEFAULT"
+  agent_log_group = var.enable_agent ? "/aws/bedrock-agentcore/runtimes/${aws_bedrockagentcore_agent_runtime.ref_client[0].agent_runtime_id}-DEFAULT" : ""
+}
+
+resource "aws_iam_role" "agent" {
+  count              = var.enable_agent ? 1 : 0
+  name               = "${var.name}-agentcore-agent"
+  assume_role_policy = data.aws_iam_policy_document.assume.json
+}
+
+data "aws_iam_policy_document" "agent" {
+  statement {
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "EcrPull"
+    actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"]
+    resources = ["arn:aws:ecr:${var.region}:${var.account_id}:repository/${var.name}/ref-client"]
+  }
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams", "logs:DescribeLogGroups"]
+    resources = ["arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/bedrock-agentcore/runtimes/*"]
+  }
+  statement {
+    sid       = "Model"
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = ["arn:aws:bedrock:${var.region}::foundation-model/*", "arn:aws:bedrock:*:${var.account_id}:inference-profile/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "agent" {
+  count  = var.enable_agent ? 1 : 0
+  name   = "web-chat-agent"
+  role   = aws_iam_role.agent[0].id
+  policy = data.aws_iam_policy_document.agent.json
+}
 
 resource "aws_bedrockagentcore_agent_runtime" "ref_client" {
-  count = var.enable_ref_client ? 1 : 0
+  count = var.enable_agent ? 1 : 0
 
-  agent_runtime_name = "${replace(var.name, "-", "_")}_ref_client"
-  description        = "Reference client (Strands on Bedrock) calling Tower over MCP"
-  role_arn           = aws_iam_role.runtime.arn
+  agent_runtime_name = local.agent_name
+  description        = "Web chat agent: the reference client's HTTP app (Bedrock Converse) calling Tower over MCP"
+  role_arn           = aws_iam_role.agent[0].arn
   environment_variables = {
-    BEDROCK_MODEL_ID = var.bedrock_model_id
-    TOWER_MCP_URL    = "https://bedrock-agentcore.${var.region}.amazonaws.com/runtimes/${urlencode(aws_bedrockagentcore_agent_runtime.tower.agent_runtime_arn)}/invocations?qualifier=DEFAULT"
+    TOWER_URL                 = local.tower_invoke
+    TOWER_ENV                 = "aws"
+    REF_AGENT                 = "bedrock"
+    BEDROCK_MODEL_ID          = var.bedrock_model_id
+    WEB_CHAT_BINDING_BASE_URL = var.binding_base_url
+    REF_CLIENT_HTTP_PORT      = "8080"
   }
 
   agent_runtime_artifact {
@@ -188,5 +228,25 @@ resource "aws_bedrockagentcore_agent_runtime" "ref_client" {
     server_protocol = "HTTP"
   }
 
-  depends_on = [aws_iam_role_policy.runtime]
+  dynamic "authorizer_configuration" {
+    for_each = var.agent_jwt_discovery_url == "" ? [] : [1]
+    content {
+      custom_jwt_authorizer {
+        discovery_url   = var.agent_jwt_discovery_url
+        allowed_clients = var.agent_jwt_allowed_clients
+      }
+    }
+  }
+
+  request_header_configuration {
+    request_header_allowlist = ["Authorization"] # the agent forwards it to Tower unchanged (09 §6.2 rule 3)
+  }
+
+  depends_on = [aws_iam_role_policy.agent]
+}
+
+resource "aws_cloudwatch_log_group" "agent" {
+  count             = var.enable_agent ? 1 : 0
+  name              = local.agent_log_group
+  retention_in_days = var.log_retention_days
 }
