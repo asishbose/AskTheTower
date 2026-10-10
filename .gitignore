@@ -62,3 +62,14 @@ CLAUDE.local.md
 docs/submission/agent-brief.md
 docs/submission/build-log.md
 docs/submission/build-log/
+
+# build prompts and test results — kept out of the repo
+prompts/
+artifacts/junit-*.xml
+artifacts/coverage*.xml
+artifacts/test-report*.md
+artifacts/screenshots/demo-ui/
+tests/visual/baseline/
+test-results/
+playwright-report/
+*.junit.xml
