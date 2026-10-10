@@ -176,15 +176,19 @@ def _label_position(path: list[tuple[float, float]], at: tuple[float, float]) ->
 # =====================================================================================================================
 
 
+WEB_BAND = 290  # height of the web chat band (prompt 20) inserted above ECR on page 1
+
+
 def page_target() -> Page:
-    p = Page("08_target_state", "1 Target state", 2920, 2260)
+    DY = WEB_BAND  # everything below the web chat band moves down by its height
+    p = Page("08_target_state", "1 Target state", 2920, 2260 + DY)
     p.text("t1", 30, 14, 2860, 32, "Ask the Tower on Amazon Bedrock AgentCore — the AWS account after <code>make deploy</code> (as the repo builds it today)", size=20, color=FONT, bold=True)  # fmt: skip
-    p.text("t2", 30, 46, 2860, 22, "Every box names the Terraform module / resource that creates it and the image it runs (tag = git sha from <code>make push</code>). Teal = request path (Alexa+ → Runtime → Gateway → mock), amber = proactive path (mock → API → Alerts → SNS), grey = binding, data and management, dashed = deploy-time or deferred, pale = intended or optional, not deployed by default.", size=11)  # fmt: skip
+    p.text("t2", 30, 46, 2860, 22, "Every box names the Terraform module / resource that creates it and the image it runs (tag = git sha from <code>make push</code>). Teal = request path (Alexa+ → Runtime → Gateway → mock; web chat W1–W5), amber = proactive path (mock → API → Alerts → SNS), grey = binding, data and management, dashed = deploy-time or deferred, pale = intended or optional, not deployed by default.", size=11)  # fmt: skip
     p.text("t3", 30, 68, 2860, 22, "Status: written and <code>terraform validate</code>-clean; never planned or applied (docs/submission/build-log/13.md). Region us-east-1, name prefix <code>att-dev</code> (name_prefix + environment), tag <code>project=ask-the-tower</code> on everything.", size=11)  # fmt: skip
 
     # --- zones ------------------------------------------------------------------------------------------------
-    p.zone("z_ext", 30, 110, 300, 1460, "External", "grey")
-    p.zone("z_aws", 360, 110, 2230, 1700, "AWS account (us-east-1) — main Terraform root deploy/terraform, state key ask-the-tower/aws/terraform.tfstate", "white")  # fmt: skip
+    p.zone("z_ext", 30, 110, 300, 1750, "External", "grey")
+    p.zone("z_aws", 360, 110, 2230, 1700 + DY, "AWS account (us-east-1) — main Terraform root deploy/terraform, state key ask-the-tower/aws/terraform.tfstate", "white")  # fmt: skip
     p.zone("z_ext2", 2620, 110, 270, 1460, "External (alternative)", "ghost")
     p.zone("z_ac", 380, 150, 2190, 370, "Bedrock AgentCore — Runtime · Gateway · Identity · Observability", "teal")
     p.zone("z_data", 380, 550, 2190, 190, "Data", "grey")
@@ -192,8 +196,9 @@ def page_target() -> Page:
     p.zone("z_vpc", 1360, 805, 1190, 440, "VPC — modules/network", "white", size=12)
     p.zone("z_msg", 380, 1320, 940, 245, "Messaging / scheduling — SNS · EventBridge Scheduler", "amber")
     p.zone("z_manual", 1360, 1320, 1190, 245, "In the account, not created by this Terraform (by hand, per the runbooks)", "ghost", dashed=True)  # fmt: skip
-    p.zone("z_ecr", 380, 1590, 2190, 200, "ECR — own Terraform root deploy/terraform/ecr, state key ask-the-tower/ecr/terraform.tfstate (survives make down)", "grey")
-    p.zone("z_dev", 30, 1840, 2860, 230, "Developer machine (WSL2) — make, terraform, docker buildx, uv run scripts/", "grey")  # fmt: skip
+    p.zone("z_web", 380, 1590, 2190, 260, "Web chat (prompt 20, 09 §6) — modules/cognito · modules/web_chat; the agent runtime sits in AgentCore above", "teal")  # fmt: skip
+    p.zone("z_ecr", 380, 1590 + DY, 2190, 200, "ECR — own Terraform root deploy/terraform/ecr, state key ask-the-tower/ecr/terraform.tfstate (survives make down)", "grey")
+    p.zone("z_dev", 30, 1840 + DY, 2860, 230, "Developer machine (WSL2) — make, terraform, docker buildx, uv run scripts/", "grey")  # fmt: skip
 
     # --- external -------------------------------------------------------------------------------------------
     p.box("alexa", 50, 230, 230, 160, "Alexa+ MCP Toolkit", [
@@ -277,17 +282,20 @@ def page_target() -> Page:
         "both by hand: TODO(human) build-log/13",
         "no metric carries line_id",
     ], "grey")  # fmt: skip
-    p.box("refclient", 2200, 200, 340, 295, "Reference client on Runtime (optional)", [
-        "aws_bedrockagentcore_agent_runtime",
-        ".ref_client — count 0 unless",
-        "enable_ref_client_runtime = true",
-        "image att-dev/ref-client:<git sha>",
-        "server_protocol HTTP, BEDROCK_MODEL_ID",
-        "Finding: the image is a CLI",
-        "(ENTRYPOINT ref-client demo), not an",
-        "HTTP server — would not pass Runtime's",
-        "/invocations + /ping contract",
-    ], "ghost", dashed=True)  # fmt: skip
+    p.box("refclient", 2200, 200, 340, 295, "AgentCore Runtime — web chat agent", [
+        "aws_bedrockagentcore_agent_runtime.ref_client",
+        "(enable_web_chat, default true)",
+        "image att-dev/ref-client:<git sha>, HTTP app",
+        "server_protocol HTTP · :8080 POST /invocations,",
+        "GET /ping (09 §6)",
+        "inbound: custom_jwt_authorizer (Cognito,",
+        "allowed_clients web-chat); Authorization",
+        "allow-listed and forwarded to Tower unchanged",
+        "aws_iam_role.agent: Bedrock invoke + logs only",
+        "(no DynamoDB, KMS or Gateway — 09 §5)",
+        "env TOWER_URL, WEB_CHAT_BINDING_BASE_URL",
+        "TODO(human) build-log/20 · F9 being resolved",
+    ], "teal", dashed=True)  # fmt: skip
 
     # --- data -------------------------------------------------------------------------------------------------
     p.box("ddb", 400, 595, 560, 125, "DynamoDB on-demand — 7 tables", [
@@ -404,7 +412,7 @@ def page_target() -> Page:
     # --- manual ---------------------------------------------------------------------------------------------
     manual = [
         ("m_state", "S3 state + lock table", ["backend.tf commands;", "REPLACE-ME placeholders", "→ -backend-config", "holds generated secrets", "TODO(human) build-log/13"]),
-        ("m_cognito", "Amazon Cognito pool", ["account linking for Alexa+", "issuer of the bearer JWT", "alexa/registration.md §2", "→ tower_jwt_* tfvars", "TODO(human) build-log/15"]),
+        ("m_cognito", "Cognito users + Alexa client", ["make cognito-users: asish,", "mom (scripts/cognito_user.py)", "alexa-link client by CLI", "(registration.md §2)", "TODO(human) build-log/20, /15"]),
         ("m_r53", "Route 53 public zone", ["input mock_route53_zone_id", "(or mock_certificate_arn)", "ACM DNS validation;", "record → internal ALB IPs"]),
         ("m_sms", "SMS sandbox numbers", ["output sms_sandbox_commands", "create + verify with the", "OTP on each demo phone", "TODO(human) build-log/13"]),
         ("m_xray", "Transaction Search + ADOT", ["aws xray update-trace-", "segment-destination;", "Tower under opentelemetry-", "instrument (image change)", "TODO(human) build-log/13"]),
@@ -412,14 +420,52 @@ def page_target() -> Page:
     for i, (cid, title, body) in enumerate(manual):
         p.box(cid, 1380 + i * 235, 1365, 220, 170, title, body, "ghost", dashed=True)
 
+    # --- web chat band (prompt 20) ------------------------------------------------------------------------------
+    p.box("browser", 50, 1640, 230, 140, "Browser — web chat page", [
+        "laptop; Asish and Mom in two",
+        "browser profiles",
+        "no number field, no SMS, no QR",
+        "TODO(human): build-log/20",
+    ], "teal", dashed=True)  # fmt: skip
+    p.box("wc_cdn", 400, 1640, 320, 140, "S3 + CloudFront — the page", [
+        "modules/web_chat",
+        "aws_s3_bucket (private, force_destroy)",
+        "aws_cloudfront_distribution + OAC",
+        "index.html · app.js · styles.css · config.js",
+        "outputs web_chat_url, web_chat_bucket",
+    ], "teal")  # fmt: skip
+    p.box("wc_cognito", 760, 1640, 340, 140, "Amazon Cognito — modules/cognito", [
+        "aws_cognito_user_pool (admin-create only)",
+        "aws_cognito_user_pool_domain (Hosted UI)",
+        "aws_cognito_user_pool_client web-chat:",
+        "code + PKCE, no secret, callback = page URL",
+        "outputs cognito_pool_id, _client_id, _issuer, …",
+    ], "teal")  # fmt: skip
+    p.box("wc_url", 1140, 1640, 320, 140, "Lambda function URL — proxy", [
+        "modules/web_chat · zip proxy/handler.py",
+        "auth NONE; CORS = the page origin",
+        "forwards Authorization, Content-Type,",
+        "session header to the agent runtime only",
+        "output agent_url · no credential held",
+    ], "teal")  # fmt: skip
+    p.box("wc_note", 1500, 1725, 1040, 55, "", [
+        "Not Terraform: users (make cognito-users), config.js + upload (make web-chat-sync), URL (make web-chat-url). Tower's TOWER_JWKS_URL, TOWER_JWT_ISSUER and",
+        "TOWER_JWT_CLIENT_IDS come from modules/cognito. Local: compose web-chat on 127.0.0.1:8083 serves page and agent, sign-in stub, no Cognito, no proxy.",
+    ], "white", size=10)  # fmt: skip
+    p.edge("e_w1", "browser", "wc_cdn", [(280, 1680), (400, 1680)], "W1 GET", "teal", at=(340, 1680))
+    p.edge("e_w2", "browser", "wc_cognito", [(230, 1780), (230, 1800), (930, 1800), (930, 1780)], "W2 Hosted UI sign-in · code + PKCE", "teal", at=(560, 1800))  # fmt: skip
+    p.edge("e_w3", "browser", "wc_url", [(130, 1780), (130, 1830), (1300, 1830), (1300, 1780)], "W3 POST /invocations + Bearer (CORS)", "teal", at=(1000, 1830))  # fmt: skip
+    p.edge("e_w4", "wc_url", "refclient", [(1460, 1690), (2580, 1690), (2580, 350), (2540, 350)], "W4 HTTPS /runtimes/{arn}/invocations · Bearer + session header", "teal", at=(1950, 1690))  # fmt: skip
+    p.edge("e_w5", "refclient", "runtime", [(2250, 495), (2250, 508), (680, 508), (680, 495)], "W5 MCP · the same Bearer", "teal", at=(2030, 508))  # fmt: skip
+
     # --- ECR --------------------------------------------------------------------------------------------------
-    p.box("ecr", 400, 1635, 900, 135, "ECR — aws_ecr_repository.service ×5 (deploy/terraform/ecr/main.tf)", [
+    p.box("ecr", 400, 1635 + DY, 900, 135, "ECR — aws_ecr_repository.service ×5 (deploy/terraform/ecr/main.tf)", [
         "att-dev/tower-mcp · att-dev/mock-carrier · att-dev/binding-page · att-dev/alerts · att-dev/ref-client",
         "aws_ecr_lifecycle_policy.service (keep the last 10) · scan on push · AES256 · force_delete = true",
         "tags <git sha> + latest, single-manifest linux/arm64; pulled by Runtime, Lambda ×3 and the ECS task",
         "make ecr-up creates (once) · make down ENV=aws keeps · make down-all is the only deleter",
     ], "grey")  # fmt: skip
-    p.box("ecr_read", 1360, 1635, 700, 135, "Main root reads it — data \"aws_ecr_repository\".service", [
+    p.box("ecr_read", 1360, 1635 + DY, 700, 135, "Main root reads it — data \"aws_ecr_repository\".service", [
         "for_each over the five services, by name <name_prefix>-<environment>/<service>;",
         "local.images = <repository_url>:<image_tag> → Runtime, Lambda ×3, ECS task.",
         "Output ecr_repositories kept (push_images.py, the eks root). image_tag = the tag",
@@ -436,7 +482,7 @@ def page_target() -> Page:
         ("d_files", 2240, 620, "Generated files (gitignored)", ["artifacts/tf-outputs.json · tf-outputs-ecr.json · image-tag", "artifacts/tfplan · terraform-plan.txt · gateway-tools.json", "deploy/.env.aws (endpoints for ENV=aws targets, no secrets)", "artifacts/latency-aws.md"]),
     ]  # fmt: skip
     for cid, x, w, title, body in dev:
-        p.box(cid, x, 1885, w, 160, title, body, "white")
+        p.box(cid, x, 1885 + DY, w, 160, title, body, "white")
 
     # --- edges: request path (teal) ---------------------------------------------------------------------------
     p.edge("e_alexa", "alexa", "runtime", [(280, 300), (400, 300)], "① MCP Streamable<br>HTTP + Bearer JWT", "teal", at=(340, 300))  # fmt: skip
@@ -469,11 +515,11 @@ def page_target() -> Page:
     p.edge("e_sandbox", "mock", "sandbox", [(2160, 900), (2640, 900)], "or: carrier_backend = sandbox", "ghost", dashed=True, at=(2400, 900))  # fmt: skip
 
     # --- deploy-time (dashed grey) ----------------------------------------------------------------------------
-    p.edge("e_push", "d_buildx", "ecr", [(1110, 1885), (1110, 1770)], "docker push · ECR token", "grey", dashed=True, at=(1110, 1826))  # fmt: skip
-    p.edge("e_tf", "d_tf", "z_aws", [(1550, 1885), (1550, 1810)], "AWS APIs · IAM user keys", "grey", dashed=True, at=(1550, 1826))  # fmt: skip
-    p.edge("e_scripts", "d_scripts", "z_aws", [(2000, 1885), (2000, 1810)], "SigV4 · ECS Exec · SDK", "grey", dashed=True, at=(2000, 1826))  # fmt: skip
+    p.edge("e_push", "d_buildx", "ecr", [(1110, 1885 + DY), (1110, 1770 + DY)], "docker push · ECR token", "grey", dashed=True, at=(1110, 1826 + DY))  # fmt: skip
+    p.edge("e_tf", "d_tf", "z_aws", [(1550, 1885 + DY), (1550, 1810 + DY)], "AWS APIs · IAM user keys", "grey", dashed=True, at=(1550, 1826 + DY))  # fmt: skip
+    p.edge("e_scripts", "d_scripts", "z_aws", [(2000, 1885 + DY), (2000, 1810 + DY)], "SigV4 · ECS Exec · SDK", "grey", dashed=True, at=(2000, 1826 + DY))  # fmt: skip
 
-    p.text("legend", 30, 2085, 2860, 160, (
+    p.text("legend", 30, 2085 + DY, 2860, 160, (
         "<b>Request (teal)</b> ① Alexa+ → Runtime: MCP over Streamable HTTP, bearer JWT from Cognito account linking (Runtime's JWT authorizer, then Tower) · "
         "② Tower → Gateway: MCP tools/call signed SigV4 by the Runtime role (Gateway authorizer AWS_IAM) · ③ Gateway asks Identity for the target's token · "
         "④ Identity → mock /oauth2/token: OAuth2 client credentials over HTTPS through the managed VPC resource · ⑤ Gateway → mock: CAMARA call over HTTPS with that bearer. "
@@ -481,7 +527,9 @@ def page_target() -> Page:
         "<b>Proactive (amber)</b> P1 mock → CloudFront/HTTP API → alerts Lambda: CloudEvents webhook, sink token in the path (the task egresses via its public IP) · "
         "P2 Scheduler → alerts / reconcile: Lambda invoke with the scheduler role · P3 alerts → Gateway: MCP SigV4 (facts re-fetched, consent re-checked) · P4 alerts → SNS → SMS to the watcher.<br>"
         "<b>Binding (grey)</b> B1 phone → binding page over mobile data · B2 phone → carrier authorize through the VPC link (the only public route to the mock) · "
-        "B3 binding page → Gateway number-verification, auth code via the Identity binding provider. Companion: docs/architecture/deployment-agentcore.md."
+        "B3 binding page → Gateway number-verification, auth code via the Identity binding provider.<br>"
+        "<b>Web chat (teal, W)</b> W1 browser → CloudFront/S3 page · W2 Cognito Hosted UI, code + PKCE → access token · W3 page → Lambda URL (CORS) · "
+        "W4 proxy → agent runtime (JWT authorizer, web-chat client) · W5 agent → Tower with the same bearer; Tower verifies it again. Companion: docs/architecture/deployment-agentcore.md."
     ), size=11)  # fmt: skip
     return p
 
@@ -567,24 +615,30 @@ def page_sequence() -> Page:
              make=("outputs (mk/aws.mk)", ["terraform output -json >", "artifacts/tf-outputs.json", "render_env.py --env aws"]),
              scripts=("scripts/render_env.py", ["→ deploy/.env.aws: TOWER_URL,", "BINDING_URL, ALERTS_URL,", "CARRIER_GATEWAY_URL, TOWER_", "TABLE_PREFIX, TOWER_KMS_*, …", "no secrets; mk/vars.mk includes", "it for every ENV=aws target"]),
              aws=("no change", [])),
-        dict(n="10", t="Alexa+ registration", w=260,
+        dict(n="10", t="Web chat users and page", w=270,
+             todo="TODO(human) build-log/20: users, seed, page upload, sign-in",
+             dev=("make cognito-users", ["→ make seed-aws → make web-chat-sync", "→ make web-chat-url", "passwords: COGNITO_PASSWORD_ASISH /", "_MOM in the root .env, or a prompt;", "never written to disk", "sign in as asish and as mom", "(two browser profiles)"]),
+             make=("cognito-users · web-chat-sync · web-chat-url", ["(mk/aws.mk, ENV=aws)", "read artifacts/tf-outputs.json"]),
+             scripts=("scripts/cognito_user.py", ["create | delete | sub <name>:", "admin_create_user + permanent", "password → artifacts/cognito-users.json", "aws_seed.py --user name=<sub>", "(or that json): Lines, Grants", "web-chat-sync: config.js from the", "outputs, s3 sync, invalidation"]),
+             aws=("web chat live", ["Cognito users asish, mom", "demo rows under their subs", "page at web_chat_url", "agent behind agent_url"])),
+        dict(n="11", t="Alexa+ registration", w=260,
              todo="TODO(human) alexa/registration.md §2–§6 (build-log/15)",
-             dev=("docs/architecture/alexa/registration.md", ["§2 Cognito pool + app client", "(aws cognito-idp …, by hand)", "§3 tfvars tower_jwt_discovery_url,", "_allowed_clients, tower_jwks_url,", "tower_jwt_issuer → make deploy again", "§4 toolkit form: Server URL =", "tower_mcp_url, Streamable HTTP,", "OAuth account linking · §5–§6"]),
+             dev=("docs/architecture/alexa/registration.md", ["§2 alexa-link client on the", "Terraform pool (aws cognito-idp, CLI;", "secret + toolkit redirect URLs)", "§3 tfvars tower_jwt_allowed_clients", "+= that client → make deploy again", "§4 toolkit form: Server URL =", "tower_mcp_url, Streamable HTTP,", "OAuth account linking · §5–§6"]),
              make=("make showcase-alexa", ["simulator script + Tower log tail", "(no registration target)"]),
              tf=("re-apply", ["Runtime custom_jwt_authorizer", "+ TOWER_JWT_* environment"]),
-             aws=("identity wired", ["Cognito user pool (outside TF)", "Runtime authorizer configured", "toolkit holds the URL + client"])),
-        dict(n="11", t="Smoke", w=270,
+             aws=("identity wired", ["alexa-link client on the pool", "Runtime authorizer allows it", "toolkit holds the URL + client"])),
+        dict(n="12", t="Smoke", w=270,
              todo="TODO(human) build-log/13: latency, test-e2e; build-log/14: ref-client JWT",
              dev=("curl $BINDING_URL/healthz", ["MCP Inspector → TOWER_URL with", "the bearer (Tower's /healthz is", "not on the Runtime URL, which", "proxies /invocations → /mcp —", "unverified)"]),
              make=("make demo ENV=aws", ["make latency-aws", "make test-e2e ENV=aws", "(require-env: deploy/.env.aws)", "make showcase-gateway"]),
              scripts=("scripts/latency.py", ["TOWER_JWT from the root .env", "→ artifacts/latency-aws.md", "pytest tests/aws -m nightly:", "conformance fixtures through", "GatewayClient → Gateway → mock"]),
              aws=("traffic only", ["spans in aws/spans only after", "Transaction Search + ADOT", "SMS only to verified numbers"])),
-        dict(n="12", t="make down ENV=aws", w=270,
+        dict(n="13", t="make down ENV=aws", w=270,
              todo="TODO(human) build-log/13: make down, confirm zero except ECR",
              dev=("make down ENV=aws", ["asks first; FORCE=1 skips", "also runs compose down -v", "after judging only: make down-all", "(down-eks → down → ECR root)"]),
              make=("down (mk/aws.mk)", ["terraform init → destroy", "-auto-approve (tfvars, no", "image_tag) · compose down -v"]),
              tf=("destroy — reverse order", ["everything in the main state;", "not ECR (other root, read by a", "data source); registry secret", "(0-day), log groups; KMS keys", "→ 7-day pending deletion"]),
-             aws=("what remains", ["5 ECR repositories + images,", "S3 state + lock table, Cognito,", "Route 53 zone, SMS sandbox numbers,", "KMS keys (pending), AWS-made log", "groups — tag project=ask-the-tower"])),
+             aws=("what remains", ["5 ECR repositories + images,", "S3 state + lock table,", "Route 53 zone, SMS sandbox numbers,", "KMS keys (pending), AWS-made log", "groups — tag project=ask-the-tower"])),
     ]  # fmt: skip
 
     x0, gap = 200, 12
@@ -638,7 +692,7 @@ def page_sequence() -> Page:
     p.text("foot", 30, 1450, width - 60, 100, (
         "<b>ECR</b>: its own root (step 2, make ecr-up), so make down ENV=aws keeps the repositories and images and a redeploy skips steps 2–4 unless the code changed; make down-all (EKS → main → ECR) is the only target that deletes images. "
         "<b>Image tag</b>: make push records the pushed sha in artifacts/image-tag; plan and deploy use it (IMAGE_TAG= overrides) and deploy checks it exists in ECR before apply; down passes none, so a later commit cannot break any of the three. "
-        "<b>Rollback</b> for steps 5–11 is make down ENV=aws (main stack); there is no per-module destroy target. "
+        "<b>Rollback</b> for steps 5–12 is make down ENV=aws (main stack); there is no per-module destroy target. "
         "<b>Cut line</b> (prompts/00): tower_carrier_client = \"direct\" + enable_nat_gateway = true in envs/aws.tfvars, then steps 5–6 again — see page 3."
     ), size=11)  # fmt: skip
     return p
@@ -649,6 +703,8 @@ def page_sequence() -> Page:
 # =====================================================================================================================
 
 NOT_ENV = {"AWS_IAM", "CLIENT_CREDENTIALS", "AUTHORIZATION_CODE", "TODO", "SYMMETRIC_DEFAULT", "HMAC_256"}
+# keys of services/web-chat/config.js (browser config, not env vars; 09 §6.4)
+NOT_ENV |= {"COGNITO_DOMAIN", "CLIENT_ID", "REDIRECT_URI", "AGENT_URL"}
 
 
 def service_env_names() -> set[str]:
@@ -678,6 +734,18 @@ def page_integrations(missing: set[str]) -> Page:
          "MCP over Streamable HTTP · Bearer JWT (Cognito); Runtime custom_jwt_authorizer, then Tower's auth.py (sub → user_id)",
          "tfvars tower_jwt_discovery_url, tower_jwt_allowed_clients / _audience → Runtime authorizer; tower_jwks_url, tower_jwt_issuer → Runtime env TOWER_JWKS_URL, TOWER_JWT_ISSUER, TOWER_JWT_AUDIENCE, TOWER_JWT_CLIENT_IDS → tower-mcp. Output tower_mcp_url → pasted into the toolkit form.",
          "services/tower-mcp/tests/test_auth.py · registration.md §6 (TODO(human))"),
+        ("teal", "Browser → web chat page + Cognito Hosted UI",
+         "HTTPS · CloudFront (OAC → private S3) · Cognito authorization code + PKCE, no client secret",
+         "module.web_chat page URL → Cognito client callback / logout URL; outputs cognito_hosted_ui_url, cognito_client_id, web_chat_url, agent_url, binding_url → make web-chat-sync → config.js keys COGNITO_DOMAIN, CLIENT_ID, REDIRECT_URI, AGENT_URL, BINDING_BASE_URL",
+         "services/web-chat/tests/test_static.py · sign-in on AWS: TODO(human) build-log/20"),
+        ("teal", "Web chat page → Lambda URL → agent runtime",
+         "HTTPS POST /invocations · Cognito Bearer + Content-Type + Runtime session header, nothing else; CORS = page origin; Runtime custom_jwt_authorizer (allowed_clients = web-chat)",
+         "proxy env AGENT_INVOKE_URL = the agent runtime's invocation URL; agent env TOWER_URL = tower_mcp_url, WEB_CHAT_BINDING_BASE_URL = binding_url, BEDROCK_MODEL_ID, TOWER_ENV=aws, REF_AGENT=bedrock",
+         "services/web-chat/tests/test_proxy.py · services/ref-client/tests/test_http.py (401 before any model call)"),
+        ("teal", "Agent → Tower (bearer pass-through)",
+         "MCP over Streamable HTTP · the caller's Bearer, byte for byte; Tower verifies it again",
+         "module.cognito issuer, jwks_url, client_id (+ var.tower_jwt_allowed_clients) → Tower env TOWER_JWKS_URL, TOWER_JWT_ISSUER, TOWER_JWT_CLIENT_IDS and both Runtime authorizers",
+         "services/ref-client/tests/test_http.py (bearer reaches a fake Tower unchanged) · tests/e2e/test_web_chat_story.py"),
         ("teal", "Reference client / latency run → Tower",
          "MCP · Bearer (TOWER_JWT); SigV4 only if no JWT authorizer is configured",
          "output tower_mcp_url → render_env.py → TOWER_URL in deploy/.env.aws → ref-client, scripts/latency.py; TOWER_JWT from the root .env",

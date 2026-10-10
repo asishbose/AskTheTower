@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append the as-built branches to 03-proactive-path and 04-binding-flow without touching their existing cells.
+"""Append as-built lanes to 02-request-path, 03-proactive-path and 04-binding-flow without touching existing cells.
 
 01-07 were generated outside this repo (finding F13 in deployment-agentcore.md), so their XML is the source. This
 script leaves every existing cell byte-for-byte as it is. It inserts one block of new cells (ids `x_*`) between
@@ -9,6 +9,8 @@ Re-running replaces the block, so the output is idempotent. The cells come from 
 - 03 gets the ack and revoke branches (06 §3-§4): reply accepted, ACK_IGNORED_SWAPPED_LINE, tick to escalation[1],
   revoke then SUPPRESSED_REVOKED.
 - 04 gets the invite code, grant, watch-settings (04 §9: the page → Alerts edge), watch and revoke steps (04 §3).
+- 02 gets the web chat lane (09 §6, prompt 20): page → (Lambda URL) → agent → Tower with the same bearer, and the
+  reply with next_step copied verbatim; steps 2–8 of Path A are unchanged.
 
     uv run python docs/architecture/diagrams/gen/gen_extend.py            # write both + check
     uv run python docs/architecture/diagrams/gen/gen_extend.py --check    # fail if a file is stale
@@ -30,6 +32,7 @@ from gen_deploy import BOX, EDGE, ROOT, Page  # noqa: E402
 BOX.setdefault("exit", ("#FBEAEA", "#C57B7B"))
 EDGE.setdefault("refuse", ("#C57B7B", 2))
 BEGIN, END = "<!-- gen_extend:begin -->", "<!-- gen_extend:end -->"
+F02 = HERE.parent / "02-request-path.drawio"
 F03 = HERE.parent / "03-proactive-path.drawio"
 F04 = HERE.parent / "04-binding-flow.drawio"
 
@@ -43,6 +46,62 @@ def right(p: Page, a: str, b: str, cid: str, label: str = "", kind: str = "grey"
     bx = p.geo[b][0]
     y = ay + ah / 2
     p.edge(cid, a, b, [(ax + aw, y), (bx, y)], label, kind, at=((ax + aw + bx) / 2, y - 9) if label else None)
+
+
+def ext02() -> tuple[Page, int]:
+    p = Page("x02", "x", 1600, 0)
+    top = 940
+    p.zone("x_zone", 28, top, 1544, 400, "Web variant, as designed for prompt 20 (09 §6) — the chat page and the agent stand in for Alexa+ — added by gen_extend.py", "teal", size=13)  # fmt: skip
+    r1, r2, r3 = top + 40, top + 170, top + 300
+    h = 100
+    p.box("x_page", XS[0], r1, COL_W, h, "Web chat page (browser)", [
+        "services/web-chat: index.html + app.js, no build step",
+        "AWS: S3 + CloudFront; Cognito Hosted UI, code + PKCE → access token",
+        "local: served by the agent on 127.0.0.1:8083; sign-in stub (Asish | Mom)",
+    ], "teal", size=10)  # fmt: skip
+    p.box("x_proxy", XS[1], r1, COL_W, h, "Lambda function URL (AWS only)", [
+        "modules/web_chat; CORS = the CloudFront origin",
+        "forwards Authorization, Content-Type and the Runtime session header,",
+        "nothing else; no credential, no logging of headers or body",
+    ], "grey", dashed=True, size=10)  # fmt: skip
+    p.box("x_agent", XS[2], r1, COL_W, h, "Agent — ref_client/http.py POST /invocations", [
+        "no / malformed bearer → 401 before any model or Tower call",
+        "number in input → 422; Bedrock (Nova Micro) picks the tool",
+        "AWS: AgentCore Runtime, protocol HTTP, own role (Bedrock + logs)",
+    ], "teal", size=10)  # fmt: skip
+    p.box("x_tower", XS[3], r1, COL_W, h, "Tower MCP — steps 2–8 above, unchanged", [
+        "verifies the same bearer (JWKS, issuer, client id) → user_id = sub",
+        "1 DynamoDB read + the carrier calls; audit before the answer",
+        "NOT_BOUND → next_step {kind: bind_line, url: BINDING_BASE_URL/bind/<token>}",
+    ], "teal", size=10)  # fmt: skip
+    right(p, "x_page", "x_proxy", "x_e1", "Bearer", "teal")
+    right(p, "x_proxy", "x_agent", "x_e2", "same", "teal")
+    right(p, "x_agent", "x_tower", "x_e3", "MCP", "teal")
+    p.box("x_reply", XS[2], r2, COL_W, h, "Agent reply {text, next_step, tool_calls}", [
+        "next_step = the last non-none tool result's, byte for byte; null if none",
+        "never from model text; bind_line outside WEB_CHAT_BINDING_BASE_URL/bind/",
+        "→ null + NEXT_STEP_REJECTED; text passes the digit guard (09 §5)",
+    ], "teal", size=10)  # fmt: skip
+    p.box("x_show", XS[0], r2, COL_W, h, "Page renders", [
+        "text; a bind link only if it starts with BINDING_BASE_URL/bind/",
+        "“Your line isn't connected yet” + the link (copyable):",
+        "tap it on your phone (mobile data), then ask again — Path C",
+    ], "teal", size=10)  # fmt: skip
+    tx, ty, tw, th = p.geo["x_tower"]
+    ax, ay, aw, ah = p.geo["x_reply"]
+    mx = tx + tw / 2
+    p.edge("x_e4", "x_tower", "x_reply", [(mx, ty + th), (mx, ay + ah / 2), (ax + aw, ay + ah / 2)], "ToolResult", "teal", at=(mx + 52, ay + ah / 2 - 30))  # fmt: skip
+    sx, sy, sw, sh = p.geo["x_show"]
+    p.edge("x_e5", "x_reply", "x_show", [(ax, ay + ah / 2), (sx + sw, ay + ah / 2)], "200 JSON", "teal", at=((ax + sx + sw) / 2, ay + ah / 2 + 12))  # fmt: skip
+    p.box("x_exit", XS[1], r2, COL_W, 44, "Refusals, never improvised", [
+        "401 · 422 no_numbers · 502 tower_unavailable · 503 agent_unavailable",
+    ], "exit", size=10)  # fmt: skip
+    p.box("x_note", 60, r3, 1480, 80, "", [
+        "Tower cannot tell this entry from Alexa+ and does not need to: same tools, same identity (sub), same audit rows; nothing is added to the hot path.",
+        "Never on this lane: a phone number in the input, a prompt or a log; a URL produced by the model; a second policy path; the demo UI's carrier controls.",
+        "Contracts: e2e-wiring.md §6 (Web chat → agent, Agent → Tower). Deployment: 08-agentcore-deployment page 1 (Cognito, S3/CloudFront, Lambda URL, agent runtime).",
+    ], "ghost", dashed=True, size=10, body_size=10)  # fmt: skip
+    return p, top + 400 + 30
 
 
 def ext03() -> tuple[Page, int]:
@@ -168,7 +227,7 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="fail if a file on disk differs from the generator")
     args = ap.parse_args()
     bad = 0
-    for path, make in ((F03, ext03), (F04, ext04)):
+    for path, make in ((F02, ext02), (F03, ext03), (F04, ext04)):
         text = apply(path, make)
         if args.check:
             if path.read_text("utf-8") != text:

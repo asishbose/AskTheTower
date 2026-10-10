@@ -1,13 +1,13 @@
 # Bind link and alert SMS — end-to-end flows for the demo
 
-**Status: reviewed 2026-10-09 (Badhri's proposal + team decisions).** Parts marked **exists** are in the code today. Parts marked **new** are not built yet and belong to the demo UI (`components/11-demo-ui.md`) — one front end, not a separate `web-sim`. The decisions below settle the open questions; anything not listed is roadmap (deadline 23 Oct).
+**Status: reviewed 2026-10-09 (Badhri's proposal + team decisions).** Parts marked **exists** are in the code today. Parts marked **new** are not built yet. They are built by prompt 20 as the **web chat page** (`services/web-chat` + the reference client's HTTP app; contract in `components/09-reference-client.md` §6), not by the demo UI (see D-B). The decisions below settle the open questions; anything not listed is roadmap (deadline 23 Oct).
 
 ## Decisions (2026-10-09)
 
 | # | Topic | Decision | Why |
 |---|---|---|---|
 | D-A | Identity | Cognito JWT; `user_id = sub`; Tower verifies via `TOWER_JWKS_URL` | Matches the existing auth decision in `components/01` §4 — no Tower change |
-| D-B | Chat page | The chat page **is** the demo UI from `components/11` (Next.js). Steps 3 and 5 of the plan are its backend (reference client on AgentCore Runtime) and page | One UI to build, one to film |
+| D-B | Chat page | ~~The chat page **is** the demo UI from `components/11` (Next.js).~~ **Amended 2026-10-09 (prompt 20; build log, Prompt 20, C1):** the chat page is a separate static page, `services/web-chat`, in front of the reference client's HTTP app (09 §6). The demo UI (11) is FastAPI + HTMX, laptop-only and never deployed, and it stays unchanged. Steps 3 and 5 of the plan are the agent (reference client on AgentCore Runtime) and this page | 11 §1 forbids deploying the demo UI and giving it a second client role; a thin page is smaller than changing it |
 | D-C | `next_step` | The agent copies `next_step` from the tool result verbatim; the model never produces a URL. The page shows only URLs under `BINDING_BASE_URL/bind/` | Rule 2 (policy is code) and no phishing-shaped output |
 | D-D | Bind link delivery | **Link only.** The page shows the link; the user opens it on the phone (type/copy/AirDrop). No SMS from the chat page | Rule 5: proactive SMS comes only from Alerts; the privacy test counts the places a raw E.164 may appear (mock state, carrier call, Alerts' SNS send) — a fourth sender would break it. If SMS delivery is wanted later it goes through Alerts' internal API |
 | D-E | QR code | Skipped | New dependency, no judge value |
@@ -17,7 +17,7 @@
 | D-I | Two-way SMS | One-way SMS on AWS. The "OK" reply and escalation are shown locally with `LogSender` | An SNS origination number (10DLC / toll-free) takes longer to register than we have. Verify the demo phone in the SNS SMS sandbox now |
 | D-J | Phone numbers in git | The real demo number lives only in a local, gitignored scenario override | Personal data never in the repo |
 
-What this changes in the text below: read "web-sim" as the demo UI; §2.3 (SMS from the chat page) is **not** built — the fallback at the end of §2.3 is the design; §6 defaults are now the decisions above.
+What this changes in the text below: read "web-sim" as the web chat page (09 §6); §2.3 (SMS from the chat page) is **not** built — the fallback at the end of §2.3 is the design; §6 defaults are now the decisions above.
 
 ## 0. The point
 
@@ -41,8 +41,8 @@ What this changes in the text below: read "web-sim" as the demo UI; §2.3 (SMS f
 
 | Piece | Runs on (local / AWS) | Sign-in | Status |
 |---|---|---|---|
-| Chat page (demo UI, `components/11`) | compose / Lambda + CloudFront | **Cognito** user name + password | new (step 5) |
-| Agent | compose / AgentCore Runtime (HTTP) | Cognito JWT, from the chat page | new (step 3) |
+| Chat page (`services/web-chat`, 09 §6) | compose `:8083` (served by the agent) / S3 + CloudFront | **Cognito** Hosted UI (PKCE) user name + password; locally a sign-in stub | new (step 5) |
+| Agent (reference client HTTP app) | compose `:8083` / AgentCore Runtime (HTTP) behind a Lambda URL | Cognito JWT, from the chat page; forwarded to Tower unchanged | new (step 3) |
 | Tower | compose / AgentCore Runtime (MCP) | Cognito JWT, from the agent | exists |
 | Binding page | compose `:8081` / Lambda | **The bind link token** (no password), then cookie `atb_session` | exists |
 | Alerts | compose `:8082` / Lambda | Shared bearer from Tower; carrier events use the sink token | exists |
@@ -93,10 +93,10 @@ sequenceDiagram
 | 4 | Tower finds no bound line for Asish's `sub`. It creates a bind token for that `sub` and answers `NOT_BOUND` with `next_step = {kind: "bind_line", url: ".../bind/<token>"}` | Tower `next_step.py` | **exists** | Token: single use, 10 min, one user |
 | 5 | The agent copies `next_step` from the tool result into its reply, **unchanged** | agent `/invocations` | new | Only from the tool result, never from model text |
 | 6 | web-sim checks the URL: it must start with `BINDING_BASE_URL/bind/` | web-sim | new | Anything else → not shown, not sent |
-| 7 | The page shows "Your line isn't connected yet" and a **[Text me the link]** button (the link is also shown for copy) | web-sim | new | — |
-| 8 | Asish types his phone number in a **form field** and taps Send | web-sim | new | See 2.3 |
-| 9 | web-sim sends the SMS: "Ask the Tower: connect your line (10 min): <link>" | web-sim → SNS | new | Rate limit; number not stored or logged |
-| 10 | The SMS arrives. Asish taps the link | phone → binding page `GET /bind/<token>` | **exists** | Token unknown or expired → "expired" page |
+| 7 | The page shows "Your line isn't connected yet", the link (copyable) and "tap it on your phone, then ask again". No SMS button (D-D) | web-sim | new | — |
+| 8 | ~~Asish types his phone number in a form field and taps Send~~ | — | **not built (D-D)** | See 2.3 |
+| 9 | ~~web-sim sends the SMS~~ — Asish copies or AirDrops the link to his phone | — | **not built (D-D)** | No number field, no `sns:Publish` for the page |
+| 10 | Asish opens the link on the phone | phone → binding page `GET /bind/<token>` | **exists** | Token unknown or expired → "expired" page |
 | 11 | "Turn Wi-Fi off, tap Verify" → Verify | binding page → carrier authorize URL | **exists** | — |
 | 12 | The carrier sees the phone on its mobile network and confirms the number (`phoneNumberShare`) | carrier → binding page `/bind/callback` | **exists** (mock: simulated) | On Wi-Fi → refused |
 | 13 | `bind_line`: `line_id = HMAC(number)`, `Lines.msisdn_enc = encrypt(number)`, owner = the `sub` in the token | `tower_consent/bind.py` | **exists** | Token for another user → refused; line owned by someone else → "taken" |
@@ -201,7 +201,7 @@ sequenceDiagram
 | 7 | **Demo trigger:** `POST /_admin/lines/+16135550102/events {sim_swap}` on the mock | admin call | — |
 | 8 | The mock posts a CloudEvent to `/hooks/sim-swap/<token>` | mock → Alerts `hooks.py` | Token unknown → 200 + log (never 404); bearer must equal the token; duplicate event → dropped |
 | 9 | Alerts loads the Watch, fetches fresh facts, runs the same policy as Tower → `SIM_SWAPPED_RECENT` | `evaluate.py` | Carrier down → keep old state. Missing data is never a change |
-| 10 | Changed since last time? Mom still shares with Asish? Not already sent in 6 h? | `evaluate.py`, `Grants`, `AlertsState` | Revoked → `SUPPRESSED_REVOKED`, nothing sent |
+| 10 | Changed since last time? Mom still shares with Asish? Not already sent in 6 h? | change: `evaluate.py`; consent re-read: `send.py` `deliver()`; 6-h dedupe: `windows.py` `rate_limited` + the `AlertsState` claim | Revoked → `SUPPRESSED_REVOKED`, nothing sent |
 | 11 | Audit row written **before** any SMS | `send.py` | — |
 | 12 | Recipients: Asish (watcher) at his alert phone = **his bound line**. Not Mom's line (it was just swapped); Mom has no backup phone → only Asish | `send.py` | Never text the swapped number |
 | 13 | Text = the same template Tower speaks, SMS form (`templates.py`). No number, no location, no health words | `templates.py` | Privacy test sweeps SMS bodies |
@@ -225,7 +225,7 @@ Replies ("OK") come back through the SNS topic `replies` → Alerts. Two-way SMS
 | Item | Demo | How |
 |---|---|---|
 | Carrier data and events | Simulated | Mock carrier; events fired by admin calls |
-| "Carrier sees the phone on mobile data" | Simulated | `X-Mock-Client-Id: phone-asish` (local only) |
+| "Carrier sees the phone on mobile data" | Simulated | `X-Mock-Client-Id: phone-asish` (local, via `?as=`); on AWS `MOCK_ASSUME_MOBILE_DATA=1` (08 §3, D-G) |
 | Asish's phone number | **Real** | In a **local** scenario file, replace `+16135550101` with your number. **Do not commit it** (personal data in git) |
 | Bind-link SMS and alert SMS | **Real on AWS** | SNS. First verify your number in the SNS SMS sandbox; new accounts can only text verified numbers |
 | Mom | Simulated | Cognito account + seeded line + grant (section 3.2, option A) |

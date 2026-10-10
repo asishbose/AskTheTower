@@ -41,6 +41,17 @@ stores the access token and sends it with every tool call. Tower verifies that t
 `user_id` (RUN-ALL Decisions; `auth.py`). Cognito access tokens carry `client_id` and **no `aud`**, so Tower
 checks `TOWER_JWT_CLIENT_IDS`, not `TOWER_JWT_AUDIENCE`. This mirrors Runtime's `allowed_clients`.
 
+**On AWS the pool comes from Terraform (prompt 20).** `make deploy` creates it with `modules/cognito` (pool, Hosted UI domain and the `web-chat` app client; `deployment-agentcore.md` step 6), and `make cognito-users` creates `asish` and `mom`. Then only the Alexa client is made here, on that pool, because it needs a secret and the toolkit's redirect URLs:
+
+```bash
+POOL=$(terraform -chdir=deploy/terraform output -raw cognito_pool_id)
+aws cognito-idp create-user-pool-client --region us-east-1 --user-pool-id $POOL --client-name alexa-link --generate-secret \
+  --allowed-o-auth-flows code --allowed-o-auth-flows-user-pool-client --allowed-o-auth-scopes openid \
+  --supported-identity-providers COGNITO --callback-urls "https://<alexa-redirect-url-1>" "https://<alexa-redirect-url-2>"
+```
+
+Hosted UI base for step 4: output `cognito_hosted_ui_url`. **Fallback, without the Terraform stack** (the local + tunnel path), create the pool by hand:
+
 ```bash
 REGION=us-east-1
 POOL=$(aws cognito-idp create-user-pool --region $REGION --pool-name ask-the-tower-alexa \
@@ -101,11 +112,11 @@ flow. Afterwards the reference client's `make demo` (as `user-asish`) needs `mak
 anyone who has the bearer. `make up` generates the bearer randomly per machine. Don't paste it anywhere, and
 stop the tunnel as soon as the run is done.
 
-AgentCore path instead: in `deploy/terraform/envs/aws.tfvars` set
-`tower_jwt_discovery_url = "https://cognito-idp.<region>.amazonaws.com/<POOL>/.well-known/openid-configuration"`,
-`tower_jwt_allowed_clients = ["<CLIENT>"]`, `tower_jwt_allowed_audience = []`, and `tower_jwks_url` /
-`tower_jwt_issuer` as above. Then run `make deploy ENV=aws`. Terraform passes the client list to Tower as
-`TOWER_JWT_CLIENT_IDS`.
+AgentCore path instead: Tower's issuer, JWKS and the `web-chat` client already come from `modules/cognito`. Add the
+`alexa-link` client: `tower_jwt_allowed_clients = ["<CLIENT>"]` in `deploy/terraform/envs/aws.tfvars`, then
+`make deploy ENV=aws`. Terraform passes `[web-chat client] + that list` to the Runtime authorizer and to Tower as
+`TOWER_JWT_CLIENT_IDS`. Only with a hand-made pool also set `tower_jwt_discovery_url`, `tower_jwks_url` and
+`tower_jwt_issuer` (they override the module's).
 
 ## 4. Register Tower with the Alexa+ MCP Toolkit
 
@@ -202,5 +213,7 @@ docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-com
 aws cognito-idp delete-user-pool-domain --region $REGION --user-pool-id $POOL --domain ask-the-tower-<suffix>
 aws cognito-idp delete-user-pool --region $REGION --user-pool-id $POOL
 ```
+
+Those two commands are for the hand-made fallback pool. The Terraform pool, its users and the `alexa-link` client go with `make down ENV=aws`.
 
 Unlink the account in the Alexa app, or disable the add-on in the toolkit console.

@@ -32,6 +32,8 @@ Three libraries are shared as code, not called as services: **policy** (03), **c
 |---|---|---|---|
 | Alexa+ → Tower | MCP over Streamable HTTP, bearer | tool name, `line` alias, `enable`; user identity | a phone number, an SMS, anything from the phone |
 | Tower → Alexa+ | MCP result | `summary`, `facts` (booleans, timestamps), `reason_codes`, `next_step` | a number, a location, a carrier error string |
+| Web chat page → agent (09 §6) | HTTPS `POST /invocations`, `Authorization: Bearer <Cognito access token>`; on AWS through the Lambda URL proxy to the agent runtime | `{input, session_id}` → `{text, next_step, tool_calls[{name, reason_codes}]}` | a phone number (input with one → 422), `facts`, a URL not from Tower |
+| Agent → Tower | MCP over Streamable HTTP, **the same bearer, byte for byte** (locally + `X-Tower-User`) | as Alexa+ → Tower | a token of its own, a number |
 | Tower → DynamoDB | SDK | one `GetItem`/`Query` on consent; one `PutItem` on audit | — |
 | Tower → Gateway | MCP tool call | `line_id` → decrypted number inside the call; `max_age` | credentials (Identity injects them) |
 | Gateway → carrier | HTTPS, OAuth bearer | CAMARA request bodies | — |
@@ -60,6 +62,20 @@ Three libraries are shared as code, not called as services: **policy** (03), **c
 ```
 
 Budget: ≈300 ms p95 against the mock (02 §4). No model between steps 2 and 8.
+
+**Web variant (prompt 20; 09 §6).** The web chat page and the reference-client agent stand in for Alexa+ in steps 1 and 9; steps 2–8 are identical.
+
+```
+ 0. Page: Cognito Hosted UI sign-in (PKCE) → access token     (local: the sign-in stub, X-Tower-User + local bearer)
+ 1. Page → agent: POST /invocations {input, session_id} + Bearer   (no bearer → 401, no model call)
+       AWS: page → Lambda URL (CORS, forwards 3 headers) → agent runtime (JWT authorizer)
+ 1b. Agent → Bedrock: picks line_is_ok(line="self")               (the model is in the client, as in Alexa+)
+ 1c. Agent → Tower: tools/call with the same bearer                → steps 2–8 unchanged
+ 9. Agent → page: {text, next_step copied verbatim from the tool result, tool_calls}
+       page shows a bind link only under BINDING_BASE_URL/bind/; "tap it on your phone, then ask again"
+```
+
+Tower cannot tell the two entries apart, and does not need to: same tools, same identity (`sub`), same audit rows. Nothing is added to the hot path.
 
 **Variants.** `is_reachable` is the same with one carrier call. `watch_line` skips 4–6: it writes a Watch, asks Alerts to (un)subscribe, audits, returns.
 
@@ -109,12 +125,14 @@ The mock simulates step 3's network attribution with a client-id header (08 §3)
 | `AuditRecord` | 07 | `{line_id, ts, actor_user_id, tool, trigger, outcome, reason_codes, message_ref, policy_version, prev_hash}` |
 | `CarrierClient` | 05 | the protocol in 05 §1; two implementations, one test suite |
 | CAMARA payloads | 08 | the vendored specs; the mock serves `/openapi.json` to diff against them |
+| Web chat → agent | 09 §6 | `POST /invocations` `{input: str 1–500, session_id: [A-Za-z0-9-]{33,128}}` + `Authorization: Bearer <Cognito access token>` → `200 {text, next_step: NextStep \| null, tool_calls: [{name, reason_codes[]}]}`; `401` no/malformed bearer (no model call) or Tower 401 · `422` invalid body or a number in `input` · `502 tower_unavailable` · `503 agent_unavailable`. `next_step` = the last non-`none` tool result's, verbatim; a `bind_line` outside `WEB_CHAT_BINDING_BASE_URL/bind/` → `null` + `NEXT_STEP_REJECTED` |
+| Agent → Tower | 09 §6, 01 §4 | MCP `tools/call` with the caller's `Authorization` header unchanged (Tower verifies: `TOWER_JWKS_URL`, `TOWER_JWT_ISSUER`, `TOWER_JWT_CLIENT_IDS`; `user_id = sub`); `X-Tower-User` forwarded only with `TOWER_ENV=local` |
 
 ## 7. Environments
 
 | | Local | AWS |
 |---|---|---|
-| Entry | reference client (09) or MCP Inspector | Alexa+ web simulator, or reference client |
+| Entry | reference client (09) CLI, web chat page on `127.0.0.1:8083` (sign-in stub), or MCP Inspector | Alexa+ web simulator, or the web chat page (CloudFront + Cognito → agent runtime, 09 §6) |
 | Tower | container, local bearer | AgentCore Runtime |
 | Carrier | `DirectClient` → mock container | Gateway + Identity → mock on Fargate (or sandbox by config) |
 | Alerts | container, in-process scheduler, SMS → log | Lambda + EventBridge + SNS |
@@ -127,7 +145,7 @@ The component code is identical across the two columns; only wiring and hosting 
 ## 8. What never happens, anywhere on these paths
 
 1. No model decides whether a call is allowed or what a fact means.
-2. No subscriber phone number crosses the Alexa+ edge in either direction.
+2. No subscriber phone number crosses the Alexa+ edge, or the web chat page → agent edge that stands in for it, in either direction.
 3. No location is requested, returned, or stored.
 4. No alert goes to the number that was just swapped.
 5. No answer or alert is released before its audit row exists.

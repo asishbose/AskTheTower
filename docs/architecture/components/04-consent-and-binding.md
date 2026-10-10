@@ -78,7 +78,7 @@ One `GetItem` or one `Query`; this is the single DynamoDB read on the hot path.
 
 ## 6. What the resident sees
 
-- On the binding page: the lines they've bound, a **Watching** card per owned line (profile and contacts, §9.3), who they've granted what, one button each to revoke. The page session is a signed cookie set by a successful bind (30 min); every grant/revoke form also carries a CSRF token.
+- On the binding page: the lines they've bound, a **Watching** card per owned line (profile and contacts, §9.3), who they've granted what, one button each to revoke. The page session is a signed cookie `atb_session` set by a successful bind; every grant/revoke form also carries a CSRF token. Its lifetime is `SESSION_TTL_S` (default `1800`, 30 min; local, kind and tests). On AWS Terraform sets `86400` (24 h, D-H in [`../bind-and-alert-flows.md`](../bind-and-alert-flows.md)) through the variable `binding_session_ttl_s`, so the line-holder can come back to revoke or read the audit during the demo day without binding again. Prompt 20 named a new `ATB_SESSION_TTL_H` for this; the existing setting already does it, so no second knob was added (build log, Prompt 20, C3). Magic-link re-entry is roadmap.
 - By voice: "Alexa, who can see my line?" and "who checked my line this week?" → `watch_line(line="self", enable=null)`, which carries grants and recent checks (02 §2, 07 §4).
 
 ## 7. Tests

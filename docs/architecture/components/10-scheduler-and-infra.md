@@ -14,7 +14,7 @@
 | Consent / binding page | container (Lambda emulator) | Lambda + API Gateway + CloudFront | Deployment + public ingress (ACM TLS) |
 | Alerts service | container with an in-process scheduler; SNS → log sink | Lambda + EventBridge Scheduler + SNS (SMS) | Deployment (`ALERTS_MODE=k8s`) + CronJobs (`python -m alerts.job`); SNS via IRSA |
 | Mock carrier | container | Fargate task, internal ALB, ACM cert | Deployment, ClusterIP |
-| Reference client | CLI | CLI, or AgentCore Runtime | Job (`make demo ENV=eks`) |
+| Reference client | CLI; HTTP app + web chat page on `127.0.0.1:8083` (compose service `web-chat`) | CLI, and the web chat agent: AgentCore Runtime (HTTP) behind S3/CloudFront + a Lambda function URL, sign-in with Cognito (09 §6) | Job (`make demo ENV=eks`); HTTP service ClusterIP, ingress off |
 | Store | DynamoDB Local | DynamoDB on-demand | DynamoDB on-demand (same tables, IRSA) |
 | Audit reconciliation | skipped | nightly Lambda over Observability traces | CronJob (shipped off: needs Tower's spans via ADOT) |
 | Demo UI ([11](11-demo-ui.md)): demo tooling, laptop only | container on `127.0.0.1:8090` (scripted agent); `make showcase-ui` runs it on the host with Bedrock | not deployed: runs on the laptop against `deploy/.env.aws` (no ECR repository, no Terraform); carrier pane and macros off | not deployed (`values-eks` `enabled: false`; the chart is for kind only) |
@@ -29,7 +29,9 @@ Locally, CAMARA webhook sinks must be `https://`, so compose adds one non-applic
 
 | Resource | Purpose | Notes |
 |---|---|---|
-| AgentCore Runtime | hosts Tower (and optionally the reference client) | the MCP server shape the Alexa+ track asks for |
+| AgentCore Runtime ×2 | Tower (MCP) and the web chat agent (the reference client, HTTP; 09 §6) | the MCP server shape the Alexa+ track asks for; the agent runtime has its own role (Bedrock + logs only) and is gated by `enable_web_chat` |
+| Cognito (`modules/cognito`) | user pool, Hosted UI domain, app client `web-chat` (PKCE, no secret) | issuer of the bearer for the chat page and Tower (`user_id = sub`); users by `make cognito-users`, not Terraform; free tier |
+| S3 + CloudFront + Lambda URL (`modules/web_chat`) | the chat page (private bucket, OAC) and a header-forwarding proxy to the agent runtime (CORS) | `make web-chat-sync` uploads the page; cents per day |
 | AgentCore Gateway | CAMARA OpenAPI → MCP tools | specs from `specs/camara/` |
 | AgentCore Identity | outbound carrier OAuth | client credentials; auth-code for consented ops |
 | DynamoDB (7 tables) | `Users`, `Lines`, `Grants`, `Watches`, `Audit`, `BindTokens` (TTL), `AlertsState` (TTL; Alerts' sink tokens, dedupe, rate-limit, escalation — 06 §7) | on-demand; point-in-time recovery on `Audit` |
@@ -38,7 +40,7 @@ Locally, CAMARA webhook sinks must be `https://`, so compose adds one non-applic
 | EventBridge Scheduler | polls per watch profile | 5-min, 30-min, daily schedules; targets the Alerts Lambda |
 | Lambda ×3 | binding page, alerts (hooks + poll + send), reconciliation | Python 3.12, arm64 |
 | API Gateway (HTTP) | binding page and webhook sinks | WAF rate limit on `/hooks/*` |
-| ECR (5 repositories) | images for every service | own Terraform root and state (`deploy/terraform/ecr`) so `make down` never deletes them; the main root reads them by data source; lifecycle keeps the last 10 images; scan on push |
+| ECR (5 repositories) | images for every service (the web chat agent reuses `ref-client`; the page and proxy need no image) | own Terraform root and state (`deploy/terraform/ecr`) so `make down` never deletes them; the main root reads them by data source; lifecycle keeps the last 10 images; scan on push |
 | Fargate + ALB | mock carrier | internal only; Gateway reaches it over the VPC link |
 | Secrets Manager | mock's own client secrets; anything Identity doesn't hold | nothing carrier-side lives here when Identity is used |
 | CloudWatch / Observability | traces, metrics, the latency SLI | per-`line_id` labels forbidden on metrics |
@@ -78,6 +80,10 @@ make showcase      # all of the above, in testing-and-showcase.md §4 order
 make ecr-up        # the five ECR repositories in their own Terraform root/state (once; idempotent) → artifacts/tf-outputs-ecr.json
 make ecr-outputs   # rewrite artifacts/tf-outputs-ecr.json from the ECR root (what `make push` reads before the first deploy)
 make deploy        # checks the pushed tag exists in ECR; terraform apply (AWS); registers Gateway specs; seeds mock on Fargate
+make cognito-users # ENV=aws: create Cognito users asish + mom (scripts/cognito_user.py; password from COGNITO_PASSWORD_<NAME> or a prompt) → artifacts/cognito-users.json (subs)
+make web-chat-sync # ENV=aws: render config.js from the outputs, upload services/web-chat/ to the S3 bucket, invalidate CloudFront
+make web-chat-url  # ENV=aws: print the chat page URL (output web_chat_url)
+make web-chat      # local: open the chat page at http://127.0.0.1:8083/ (needs make up)
 make plan          # terraform plan only (main root; needs ecr-up)
 make tf-check      # terraform fmt + validate of the main and ecr roots (init -backend=false; no AWS) + tables.auto.tfvars.json current
 make down          # ENV=aws: terraform destroy of the main root — the ECR repositories and their images are kept; compose down

@@ -83,6 +83,19 @@ The whole `/_admin` surface is mounted only when `MOCK_ADMIN=1`.
 
 **Simulated mobile-data attribution.** Real Number Verification works because the carrier sees the device on its own network. The mock simulates this with a header `X-Mock-Client-Id`: the binding page, when opened by a test "phone", sends `phone-asish`; a request without a matching id gets 403 `NUMBER_VERIFICATION.USER_NOT_AUTHENTICATED_BY_MOBILE_NETWORK` (the Fall25 code; it was 422 `UNIDENTIFIABLE_DEVICE` in Commonalities 0.4). This makes the "Wi-Fi off, one tap" story testable without a real network, and it is documented on the slide as a simulation.
 
+**Assumed mobile data on AWS (`MOCK_ASSUME_MOBILE_DATA`, prompt 20, D-G).** The mock on Fargate cannot see the phone's network, and the binding page's `?as=` simulation only exists with `TOWER_ENV=local` (e2e §5). So on AWS the mock can be told to assume it:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `MOCK_ASSUME_MOBILE_DATA` | `0` | `1`: `GET /oauth2/authorize` without `X-Mock-Client-Id` attributes the request to the line whose `mobile_data_client_ids` contains `MOCK_ASSUME_CLIENT_ID`, as if the carrier saw that phone on mobile data |
+| `MOCK_ASSUME_CLIENT_ID` | `phone-asish` | the client id assumed. Only one line can be "the phone" at a time, which is the AWS demo: Asish binds on camera and Mom is pre-seeded (D-F) |
+
+- **Logged at startup** as `SIMULATION: MOCK_ASSUME_MOBILE_DATA=1 (client id phone-asish)`. With the flag off, nothing changes: the attribution tests above still hold.
+- **One simulation at a time.** With the flag on, an authorize request that *also* carries `X-Mock-Client-Id` (which is what the binding page's `?as=` sends with `TOWER_ENV=local`) is refused: 400 `invalid_request`, "one simulation at a time". The two simulations never combine.
+- An unknown `MOCK_ASSUME_CLIENT_ID` (no line has it) fails at startup, not at bind time.
+- Set to `1` only on the Fargate task (Terraform `mock_assume_mobile_data`, default `true` while the backend is the mock). Compose, kind and the tests keep `0`. A real carrier or sandbox ignores all of this (rule 6).
+- Tests: `services/mock-carrier/tests/test_assume_mobile_data.py`. Default off → 403 without the header, as above. On → authorize succeeds without `X-Mock-Client-Id`, and `phoneNumberShare` returns that line. On + header → 400. On + unknown client id → startup error.
+
 ## 4. Subscriptions and webhooks
 
 - On create: validate `sink`, store, return `201` with `subscriptionId`, `expiresAt`.
@@ -99,7 +112,7 @@ The whole `/_admin` surface is mounted only when `MOCK_ADMIN=1`.
 - **Conformance:** request/response validation against the vendored specs for every operation (schemathesis or an equivalent), including error envelopes.
 - **Scenario:** load `demo.yaml`, advance 12 min, `check` → `swapped: true`; `retrieve-date` → the expected timestamp.
 - **Subscriptions:** create, fire an admin event, assert a CloudEvent at the sink with the right type and `subscriptionId`.
-- **Attribution:** `verify` without the client id → 403 `NUMBER_VERIFICATION.USER_NOT_AUTHENTICATED_BY_MOBILE_NETWORK`; with the wrong id → the same; with the right id → verified.
+- **Attribution:** (flag off) `verify` without the client id → 403 `NUMBER_VERIFICATION.USER_NOT_AUTHENTICATED_BY_MOBILE_NETWORK`; with the wrong id → the same; with the right id → verified.
 - **Faults:** `faults {timeout, 1}` → next call hangs > 400 ms; the Tower-side test asserts `STALE_DATA`.
 - **Admin token and refs (G1, G2):** with `MOCK_ADMIN_TOKEN` set, every mutating route is 401 without it or with a wrong one and 200 with it; the reads answer without it; `?view=refs` and an event fired by `ref` contain no E.164 (`tests/test_admin_token_refs.py`).
 

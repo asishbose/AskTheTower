@@ -1,5 +1,7 @@
 # Ask the Tower
 
+![Ask the Tower — you ask Alexa, Tower asks the carrier, Mom gets a text](docs/img/hero.png)
+
 Your own agent on Alexa+ asking the carrier about your line — from the one device that still works after your phone goes dead.
 
 Tower is an MCP server for the **Alexa+ MCP Toolkit**. It asks a carrier three things over standard CAMARA network APIs: was my SIM moved, are my calls being forwarded, and is this phone on the network. It answers only for lines that are bound and consented. Team: Asish Bose and Badhrinath Padmanabhan, Canada. Licence: [Apache-2.0](LICENSE).
@@ -236,7 +238,7 @@ New to the project, or presenting it? Start with the [ten-page explainer](docs/a
 - **Proactive:** a carrier event or a scheduled poll → the same policy → consent re-checked → SMS. Alexa+ is not on this path.
 - **Binding:** a link opened on the phone over mobile data → Number Verification → the line is bound, then a grant is optional.
 
-![Request path](docs/architecture/diagrams/png/02-request-path.png)
+The request path in detail: [`02-request-path.png`](docs/architecture/diagrams/png/02-request-path.png).
 
 **The seven rules:**
 
